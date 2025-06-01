@@ -20,6 +20,7 @@
 from time import sleep
 from config import led_board, button_left, button_right
 import OuterLine as OuterLine # type: ignore
+import AStar as AStar # type: ignore
 
 # Set serial to UART0 to guarantee USB communication in if current_state == of reset
 # uart = UART(0, 115200, tx=1, rx=3)
@@ -39,6 +40,7 @@ while True:
         break
     elif button_right() == True and button_left() == False:
         print("Button right pressed. Starting A* Path Planner...")
+        AStar.run()
         break
     else:
         # Blink the LED board to indicate waiting for button press
