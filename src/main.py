@@ -10,6 +10,7 @@
 
 # Author: R. Kleine 
 # Date: 1 June 2025
+# Last update: 1 June 2025
 
 
 ###### Close Thonny after start running this code #######
@@ -17,21 +18,16 @@
 # two different programs (Thonny and Webots) at the same time.
 
 
-from machine import Pin, UART
+from machine import Pin, UART # type: ignore
 from time import sleep
 # import ulab
+from config import COUNTER_MAX, COUNTER_STOP, led_board, button_left, button_right
+from utils import read_Sensor_Status, led_Control
 
 
-# Set serial to UART0 to guarantee USB communication in case of reset
+# Set serial to UART0 to guarantee USB communication in if current_state == of reset
 # uart = UART(0, 115200, tx=1, rx=3)
 
-led_board = Pin(2, Pin.OUT)     # Define ESP32 onboard LED
-led_yellow = Pin(4, Pin.OUT)
-led_blue = Pin(23, Pin.OUT)
-led_green = Pin(22, Pin.OUT)
-led_red = Pin(21, Pin.OUT)
-button_left = Pin(34, Pin.IN, Pin.PULL_DOWN)
-button_right = Pin(35, Pin.IN, Pin.PULL_DOWN)
 # Button value is normally False. Returns True when clicked.
 
 # Wait for the button click before changing the serial port to UART1.
@@ -53,8 +49,6 @@ line_right = False
 # Variables to implement the line-following state machine
 current_state = 'forward'
 counter = 0
-COUNTER_MAX = 5
-COUNTER_STOP = 50
 state_updated = True
 
 while True:
@@ -63,76 +57,58 @@ while True:
     
     # Check if anything was received via serial to update sensor status
     if uart.any():
-        msg_bytes = uart.read()    # Read all received messages
-        msg_str = str(msg_bytes, 'UTF-8')  # Convert to string
-        # Ignore old messages (Webots can send faster than the ESP32 can process)
-        # Then split them in the same order used in Webots and update sensor status
-
-        # line_left
-        if msg_str[-4:-3] == '1':
-            line_left = True
-            led_blue.on()
-        else:
-            line_left = False
-            led_blue.off()
-        # line_center
-        if msg_str[-3:-2] == '1':
-            line_center = True
-            led_green.on()
-        else:
-            line_center = False
-            led_green.off()
-        # line_right
-        if msg_str[-2:-1] == '1':
-            line_right = True
-            led_red.on()
-        else:
-            line_right = False
-            led_red.off()
-
+        line_left, line_center, line_right = read_Sensor_Status(uart.read())
+        print(f"Line sensors: left={line_left}, center={line_center}, right={line_right}")
 
     ##################   Think   ###################
 
-    # Implement the line-following state machine transitions
+    # Implement the line-following state machine transitions    
     if current_state == 'forward':
+        led_Control(1, 0, 0, 0)  # Turn on yellow LED when moving forward
         counter = 0
-        if line_right and not line_left:
-            current_state = 'turn_right'
-            state_updated = True
-        elif line_left and not line_right:
-            current_state = 'turn_left'
-            state_updated = True
-        elif line_left and line_right and line_center: # lost the line
-            current_state = 'turn_left'
-            state_updated = True
-        elif button_right.value() == True:
-            current_state = 'stop'
-            state_updated = True
-            
-    if current_state == 'turn_right':
-        if counter >= COUNTER_MAX:
-            current_state = 'forward'
-            state_updated = True
-        elif button_right.value() == True:
+        # Check if the button is pressed to stop
+        if button_right.value() == True:
             current_state = 'stop'
             state_updated = True
 
-    if current_state == 'turn_left':
-        if counter >= COUNTER_MAX:
-            current_state = 'forward'
+        # Check the line sensor status to determine the next state
+        elif line_left and not line_right:
+            current_state = 'turn_right'    
             state_updated = True
-        elif button_right.value() == True:
+        elif not line_left and line_right:
+            current_state = 'turn_left'
+            state_updated = True
+        elif not line_left and not line_right and not line_center: # lost the line
+            current_state = 'turn_left'
+            state_updated = True
+
+    elif current_state == 'turn_right':
+        led_Control(0, 1, 0, 0)  # Turn on blue LED when turning right
+        if button_right.value() == True:
             current_state = 'stop'
             state_updated = True
-            
-    if current_state == 'stop':
+        elif counter >= COUNTER_MAX:
+            current_state = 'forward'
+            state_updated = True
+
+    elif current_state == 'turn_left':
+        led_Control(0, 0, 1, 0)  # Turn on green LED when turning left
+        if button_right.value() == True:
+            current_state = 'stop'
+            state_updated = True
+        elif counter >= COUNTER_MAX:
+            current_state = 'forward'
+            state_updated = True
+
+    elif current_state == 'stop':
+        led_Control(0, 0, 0, 1)  # Turn on red LED when stopped
         led_board.value(1)
         if counter >= COUNTER_STOP:
             current_state = 'forward'
             state_update = True
             led_board.value(0)
-            
-    
+
+
     ##################   Act   ###################
 
     # Send the new state when updated
@@ -142,5 +118,3 @@ while True:
 
     counter += 1    # increment counter
     sleep(0.02)     # wait 0.02 seconds
-   
-
