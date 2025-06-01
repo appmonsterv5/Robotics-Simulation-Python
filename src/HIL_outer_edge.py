@@ -84,9 +84,9 @@ while robot.step(timestep) != -1:
         gsValues.append(gs[i].getValue())
 
     # Process sensor data
-    line_right = gsValues[0] > 600
-    line_center = gsValues[1] > 600
-    line_left = gsValues[2] > 600
+    line_right = gsValues[0] < 600
+    line_center = gsValues[1] < 600
+    line_left = gsValues[2] < 600
     
     # Build the message to be sent to the ESP32 with the ground
     # sensor data: 0 = line detected; 1 = line not detected
