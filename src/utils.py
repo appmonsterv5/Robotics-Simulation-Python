@@ -9,7 +9,7 @@ def read_Sensor_Status(msg_bytes) -> tuple[bool, bool, bool]:
     msg_str = str(msg_bytes, 'UTF-8')
     
     # Extract sensor status from the message string
-    line_left = msg_str[-4:-3] == '1' # left sensor, '0' means line detected
+    line_left = msg_str[-4:-3] == '1' # left sensor, '1' means line detected
     line_center = msg_str[-3:-2] == '1' # center sensor
     line_right = msg_str[-2:-1] == '1' # right sensor
     
