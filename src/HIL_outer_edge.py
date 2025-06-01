@@ -119,18 +119,19 @@ while robot.step(timestep) != -1:
     if current_state == 'forward':
         leftSpeed = speed
         rightSpeed = speed
-            
-    if current_state == 'turn_right':
+    elif current_state == 'turn_right':
         leftSpeed = 1 * speed
         rightSpeed = 0 * speed
-
-    if current_state == 'turn_left':
+    elif current_state == 'turn_left':
         leftSpeed = 0 * speed
         rightSpeed = 1 * speed
-        
-    if current_state == 'stop':
+    elif current_state == 'stop':
         leftSpeed = 0.0
         rightSpeed = 0.0
+    else:
+        print(f'Unknown state: {current_state}. Using default speed values.')
+        leftSpeed = speed
+        rightSpeed = speed
 
 
     ############################################
