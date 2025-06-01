@@ -7,17 +7,17 @@
 # Tested on Webots R2023a, on Windows 11 running Python 3.10.5 64-bit
 # communicating with MicroPython v1.25.0 on generic ESP32 module with ESP32
 
-# Author: Felipe N. Martins
-# Date: 29 November 2024
-# Last update: 20 May 2025
+# Author: R. Kleine
+# Date: 1 June 2025
+# Last update: 1 June 2025
 
-from controller import Robot
-import numpy as np
+from controller import Robot # type: ignore
+import numpy as np # type: ignore
 
 #-------------------------------------------------------
 # Open serial port to communicate with the microcontroller
 
-import serial
+import serial # type: ignore
 try:
     # Change the port parameter according to your system
     ser =  serial.Serial(port='COM7', baudrate=115200, timeout=5) 

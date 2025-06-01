@@ -1,0 +1,16 @@
+{
+    "cSpell.words": [
+        "Webots",
+        "uart",
+        "thonny",
+        "wroom",
+        "ulab",
+        "micropython",
+        "kleine",
+        "microcontroller",
+        "baudrate",
+        "timestep",
+        "transfered"
+    ],
+    "python.analysis.typeCheckingMode": "standard"
+}
