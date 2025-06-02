@@ -1,7 +1,7 @@
 from machine import UART # type: ignore
 from time import sleep
 from config import COUNTER_MAX, COUNTER_STOP, led_board, button_right
-from utils import read_Sensor_Status, led_Control
+from utils import read_Sensor_Status_OuterLine, led_Control
 
 def run():
     print("Outer Line follower is running...")
@@ -24,7 +24,7 @@ def run():
         
         # Check if anything was received via serial to update sensor status
         if uart.any():
-            line_left, line_center, line_right = read_Sensor_Status(uart.read())
+            line_left, line_center, line_right = read_Sensor_Status_OuterLine(uart.read())
             print(f"Line sensors: left={line_left}, center={line_center}, right={line_right}")
 
         ##################   Think   ###################

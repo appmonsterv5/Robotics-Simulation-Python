@@ -1,6 +1,6 @@
 from config import led_yellow, led_blue, led_green, led_red
 
-def read_Sensor_Status(msg_bytes) -> tuple[bool, bool, bool]:
+def read_Sensor_Status_OuterLine(msg_bytes) -> tuple[bool, bool, bool]:
     """
     Reads the sensor status from the received message bytes.
     Returns a tuple with the status of the left, center, and right sensors.
