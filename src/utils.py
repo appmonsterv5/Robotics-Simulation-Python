@@ -17,6 +17,7 @@ KI_TURN_ESP = 0.0
 KD_TURN_ESP = 0.0
 TURN_EARLY_EXIT_THRESHOLD_ESP = math.radians(15) # This constant is not used in the provided code.
 LINE_FOLLOW_COUNTER_MAX_ESP = 3
+MAX_SPEED_ESP = 6.28
 
 def heuristic_esp(node_key, goal_key, coords):
     n1 = coords[node_key]
