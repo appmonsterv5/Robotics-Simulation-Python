@@ -91,18 +91,9 @@ while robot.step(timestep) != -1:
     # Build the message to be sent to the ESP32 with the ground
     # sensor data: 0 = line detected; 1 = line not detected
     message = ''
-    if line_left:
-        message += '1'
-    else:
-        message += '0'
-    if line_center:
-        message += '1'
-    else:
-        message += '0'
-    if line_right:
-        message += '1'
-    else:
-        message += '0'
+    message += '1' if line_left else '0'  # left sensor
+    message += '1' if line_center else '0'  # center sensor
+    message += '1' if line_right else '0'  # right sensor
     msg_bytes = bytes(message + '\n', 'UTF-8')
     
 
@@ -121,9 +112,9 @@ while robot.step(timestep) != -1:
         rightSpeed = speed
     elif current_state == 'turn_right':
         leftSpeed = 1 * speed
-        rightSpeed = 0 * speed
+        rightSpeed = -0.5 * speed
     elif current_state == 'turn_left':
-        leftSpeed = 0 * speed
+        leftSpeed = -0.5 * speed
         rightSpeed = 1 * speed
     elif current_state == 'stop':
         leftSpeed = 0.0

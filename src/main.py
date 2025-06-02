@@ -17,12 +17,24 @@
 # This is necessary because the serial port cannot be used by
 # two different programs (Thonny and Webots) at the same time.
 
+import usocket as socket
+import ustruct as struct
+import network
+import uheapq as heapq # MicroPython's heap queue
 from time import sleep
 from config import led_board, button_left, button_right
 import OuterLine as OuterLine # type: ignore
+import AStar as AStar # type: ignore
 
-# Set serial to UART0 to guarantee USB communication in if current_state == of reset
-# uart = UART(0, 115200, tx=1, rx=3)
+# --- Check Wi-Fi Connection ---
+wlan = network.WLAN(network.STA_IF)
+if not wlan.isconnected():
+    print("WiFi not connected. Please ensure boot.py ran successfully and connected to WiFi.")
+    print("You might need to reset the device.")
+else:
+    ESP32_IP_ADDRESS = wlan.ifconfig()[0]
+    print(f"ESP32 is connected to WiFi. IP Address: {ESP32_IP_ADDRESS}")
+
 
 # Wait for the button click before starting the corresponding algorithm.
 # During the wait period, the program can be stopped using the STOP button in Thonny.
@@ -39,6 +51,7 @@ while True:
         break
     elif button_right() == True and button_left() == False:
         print("Button right pressed. Starting A* Path Planner...")
+        AStar.run()
         break
     else:
         # Blink the LED board to indicate waiting for button press
