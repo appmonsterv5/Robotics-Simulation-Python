@@ -10,7 +10,8 @@
         "microcontroller",
         "baudrate",
         "timestep",
-        "transfered"
+        "transfered",
+        "astar"
     ],
     "python.analysis.typeCheckingMode": "standard"
 }
