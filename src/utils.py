@@ -1,5 +1,5 @@
 from config import led_yellow, led_blue, led_green, led_red
-import ulab # type: ignore
+import math # type: ignore
 import heapq
 
 def read_Sensor_Status_OuterLine(msg_bytes) -> tuple[bool, bool, bool]:
@@ -76,8 +76,8 @@ class PathPlanner:
         """Calculate heuristic distance between two nodes"""
         x1, y1 = self.coords[node1]
         x2, y2 = self.coords[node2]
-        return ulab.sqrt([(x2 - x1)**2 + (y2 - y1)**2])[0]  # Return the first element since ulab returns an array-like object
-    
+        return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)  # Return the first element since
+        
     def find_path(self, start, goal):
         """Find shortest valid path using A* algorithm"""
         if start not in self.coords or goal not in self.coords:

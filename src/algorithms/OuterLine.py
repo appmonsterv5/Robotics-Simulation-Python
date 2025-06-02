@@ -72,7 +72,7 @@ def run():
             led_board.value(1)
             if counter >= COUNTER_STOP:
                 current_state = 'forward'
-                state_update = True
+                state_updated = True
                 led_board.value(0)
 
 

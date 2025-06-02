@@ -1,6 +1,6 @@
 from machine import UART # type: ignore
 from time import sleep
-import ulab # type: ignore
+import math # type: ignore
 from config import COUNTER_MAX, COUNTER_STOP, led_board, button_right, AstarStart, AstarEnd, intersection_coords, valid_connections
 from utils import read_Sensor_Status_AStar, led_Control, PathPlanner
 
@@ -10,10 +10,10 @@ def get_robot_pose(x_old, y_old, phi_old, delta_x, delta_y, delta_phi):
     y = y_old + delta_y
     phi = phi_old + delta_phi
     # phi_avg = (phi_old + phi)/2   
-    if phi >= ulab.pi:
-        phi = phi - 2*ulab.pi
-    elif phi < -ulab.pi:
-        phi = phi + 2*ulab.pi
+    if phi >= math.pi:
+        phi = phi - 2*math.pi
+    elif phi < -math.pi:
+        phi = phi + 2*math.pi
     
     return x, y, phi
 
@@ -31,9 +31,9 @@ def run():
     delta_phi = 0.0  # change in orientation [rad]
     
     # starting position of the robot in the world
-    x = -0.06    # position in x [m]
-    y = 0.436    # position in y [m]
-    phi = 0.0531  # orientation [rad]
+    x = 0.00    # position in x [m]
+    y = 0.0    # position in y [m]
+    phi = 1.5708  # orientation [rad]
 
     # Variables to implement the line-following state machine
     current_state = 'forward'
