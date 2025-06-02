@@ -89,15 +89,53 @@ def get_offset_waypoint_esp(wp1_coord_tuple, wp2_coord_tuple, offset_distance, b
 def calculate_angle_to_target_esp(current_x, current_y, target_x, target_y):
     return math.atan2(target_y - current_y, target_x - current_x)
 
+# --- PID for Line Following ---
+class LineFollowPID:
+    def __init__(self, kp=0.5, ki=0.0, kd=0.125, output_limits=(-1.0, 1.0)):
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+        self.output_limits = output_limits
+        self.integral = 0.0
+        self.prev_error = 0.0
+
+    def update(self, error, dt):
+        self.integral += error * dt
+        derivative = (error - self.prev_error) / dt if dt > 0 else 0.0
+        output = self.kp * error + self.ki * self.integral + self.kd * derivative
+        self.prev_error = error
+        return clip_value(output, self.output_limits[0], self.output_limits[1])
+
+line_pid = LineFollowPID()
+
 def determine_line_following_speeds_esp(gs_values_local, sub_state, max_s, counter_val, counter_max_val):
+    # PID-based line following for straight lines
     l_speed = 0.0; r_speed = 0.0; new_sub_s = sub_state; new_counter = counter_val
     line_right_detected = gs_values_local[0] < 500 # gs0 is Right
     line_center_detected = gs_values_local[1] < 500 # gs1 is Middle
     line_left_detected = gs_values_local[2] < 500 # gs2 is Left
+
+    # Calculate error: negative if line is to the left, positive if to the right
+    # Use weighted sum: left = -1, center = 0, right = +1
+    gs_weights = [-1, 0, 1]
+    gs_binary = [int(gs < 500) for gs in gs_values_local]
+    error = sum(w * v for w, v in zip(gs_weights, gs_binary))
+    # If all sensors off line, keep previous error (or set to 0)
+    if sum(gs_binary) == 0:
+        error = 0
+
+    # Only use PID when in 'forward' state
     if sub_state == 'forward':
-        l_speed = max_s * LINE_FOLLOW_SPEED_FACTOR_ESP; r_speed = max_s * LINE_FOLLOW_SPEED_FACTOR_ESP
-        if line_right_detected and not line_left_detected and not line_center_detected: new_sub_s = 'turn_left'; new_counter = 0
-        elif line_left_detected and not line_right_detected and not line_center_detected: new_sub_s = 'turn_right'; new_counter = 0
+        dt = 0.05  # Assume 50ms loop if not available (should be replaced with actual delta_t)
+        pid_output = line_pid.update(error, dt)
+        base_speed = max_s * LINE_FOLLOW_SPEED_FACTOR_ESP
+        l_speed = clip_value(base_speed - pid_output, 0, max_s)
+        r_speed = clip_value(base_speed + pid_output, 0, max_s)
+        # State transitions for sharp corrections
+        if line_right_detected and not line_left_detected and not line_center_detected:
+            new_sub_s = 'turn_left'; new_counter = 0
+        elif line_left_detected and not line_right_detected and not line_center_detected:
+            new_sub_s = 'turn_right'; new_counter = 0
     elif sub_state == 'turn_left':
         l_speed = 0.3 * max_s * LINE_FOLLOW_SPEED_FACTOR_ESP; r_speed = 0.7 * max_s * LINE_FOLLOW_SPEED_FACTOR_ESP
         if new_counter >= counter_max_val or line_center_detected: new_sub_s = 'forward'

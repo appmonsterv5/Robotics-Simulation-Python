@@ -36,7 +36,7 @@ def normalize_angle(angle_rad):
     while angle_rad < -math.pi: angle_rad += 2 * math.pi
     return angle_rad
 
-WAYPOINT_REACHED_THRESHOLD_ESP = 0.025
+WAYPOINT_REACHED_THRESHOLD_ESP = 0.035
 INTERSECTION_APPROACH_OFFSET_ESP = 0.005
 LINE_FOLLOW_SPEED_FACTOR_ESP = 0.8
 TURN_COMPLETION_THRESHOLD_ESP = math.radians(10)

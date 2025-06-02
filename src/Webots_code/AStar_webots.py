@@ -17,6 +17,7 @@
 from controller import Robot # type: ignore
 import numpy as np # type: ignore
 import struct
+import socket # MicroPython's socket module
 
 # --- Webots Specific Initialization ---
 robot = Robot()
