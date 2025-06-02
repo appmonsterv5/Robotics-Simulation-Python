@@ -47,11 +47,29 @@ for i in range(3):
     gs.append(robot.getDevice(gsNames[i]))
     gs[i].enable(timestep)
 
-#-------------------------------------------------------
-# Main loop:
-# perform simulation steps until Webots is stopping the controller
-# Implements the see-think-act cycle
+# --- Socket Communication Setup (Client) ---
+HOST = '192.168.2.32'  # Standard loopback interface address (localhost) - replace with ESP32 IP
+PORT = 65432        # Port to listen on (non-privileged ports are > 1023)
 
+print(f"Attempting to connect to ESP32 at {HOST}:{PORT}...")
+try:
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.connect((HOST, PORT))
+    print("Successfully connected to ESP32!")
+
+except socket.error as e:
+    print(f"Failed to connect to ESP32: {e}")
+    print("Please ensure the ESP32 server is running and its IP is correct.")
+    robot.simulationSetMode(robot.SIMULATION_MODE_PAUSE) # Pause simulation on connection failure
+    exit() # Exit Webots controller
+
+# Initial robot pose (adjust to match your simulation's starting point if different from ESP32's expectation)
+# Note: The ESP32 will maintain its own internal pose. This is mainly for initial setup consistency.
+x = 0.0
+y = 0.0
+phi = 1.5707
+
+# Main control loop
 while robot.step(timestep) != -1:
     # --- Sense ---
     encoderValues = [enc.getValue() for enc in encoder]
