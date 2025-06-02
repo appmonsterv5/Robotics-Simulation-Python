@@ -2,7 +2,19 @@ from machine import UART # type: ignore
 from time import sleep
 import math # type: ignore
 from config import START_NODE_KEY_ESP, GOAL_NODE_KEY_ESP, INTERSECTION_COORDS_ESP, VALID_CONNECTIONS_ESP
-from utils import normalize_angle, LINE_FOLLOW_COUNTER_MAX_ESP, INTERSECTION_APPROACH_OFFSET_ESP, TURN_COMPLETION_THRESHOLD_ESP, ORIENTATION_CORRECTION_THRESHOLD_ERROR_ESP, KP_TURN_ESP, KI_TURN_ESP, KD_TURN_ESP, WAYPOINT_REACHED_THRESHOLD_ESP, LINE_FOLLOW_SPEED_FACTOR_ESP
+from utils import (
+    normalize_angle, LINE_FOLLOW_COUNTER_MAX_ESP, INTERSECTION_APPROACH_OFFSET_ESP,
+    TURN_COMPLETION_THRESHOLD_ESP, ORIENTATION_CORRECTION_THRESHOLD_ERROR_ESP,
+    KP_TURN_ESP, KI_TURN_ESP, KD_TURN_ESP, WAYPOINT_REACHED_THRESHOLD_ESP,
+    LINE_FOLLOW_SPEED_FACTOR_ESP, a_star_search_esp, PIDController_ESP, clip_value  # <-- Add clip_value here
+)
+import network
+import usocket as socket
+import ustruct as struct
+
+# --- Wi-Fi Setup ---
+wlan = network.WLAN(network.STA_IF)
+ESP32_IP_ADDRESS = wlan.ifconfig()[0] if wlan.isconnected() else "0.0.0.0"
 
 # --- Constants (Ported from Webots, renamed with _ESP suffix for clarity) ---
 MAX_SPEED_ESP = 6.28
@@ -360,6 +372,7 @@ def process_robot_data_tcp(client_socket):
         return False # Indicate failure
 # --- Main Server Loop ---
 def start_server(host='0.0.0.0', port=65432): # Port matches Webots controller
+    global wlan, ESP32_IP_ADDRESS
     if not wlan.isconnected():
         print("ESP32: Cannot start server, WiFi not connected.")
         return
@@ -420,7 +433,11 @@ def reset_initial_esp_state():
     print("ESP32: Global states reset for new run/connection.")
 
 
+def run():
+    reset_initial_esp_state()
+    start_server()
+
 # --- Start the server when main.py is executed ---
 if __name__ == "__main__":
-    reset_initial_esp_state() # Reset state when script (re)starts
-    start_server()
+    run()
+
