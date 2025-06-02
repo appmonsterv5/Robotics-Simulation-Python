@@ -2,120 +2,99 @@ from config import led_yellow, led_blue, led_green, led_red
 import math # type: ignore
 import heapq
 
-def read_Sensor_Status_OuterLine(msg_bytes) -> tuple[bool, bool, bool]:
-    """
-    Reads the sensor status from the received message bytes.
-    Returns a tuple with the status of the left, center, and right sensors.
-    """
-    # Convert bytes to string
-    msg_str = str(msg_bytes, 'UTF-8')
-    
-    # Extract sensor status from the message string
-    line_left = msg_str[-4:-3] == '1' # left sensor, '1' means line detected
-    line_center = msg_str[-3:-2] == '1' # center sensor
-    line_right = msg_str[-2:-1] == '1' # right sensor
-    
-    return (line_left, line_center, line_right)
+def normalize_angle(angle_rad):
+    while angle_rad > math.pi: angle_rad -= 2 * math.pi
+    while angle_rad < -math.pi: angle_rad += 2 * math.pi
+    return angle_rad
 
-def read_Sensor_Status_AStar(msg_bytes) -> tuple[bool, bool, bool, float, float, float]:
-    """
-    Reads the sensor status from the received message bytes.
-    Returns a tuple with the status of the left, center, and right sensors.
-    """
-    # Convert bytes to string
-    msg_str = str(msg_bytes, 'UTF-8')
-    
-    parts = msg_str.split(' ')
-    if len(parts) != 4:
-        raise ValueError("Received message does not contain enough parts to extract sensor status.")
-    
-    try:
-        # parts[0] is expected to contain the sensor status in the format '1xx' where '1' indicates line detected.
-        # Extract sensor status from the message string
-        line_left = parts[0][-4:-3] == '1' # left sensor, '1' means line detected
-        line_center = parts[0][-3:-2] == '1' # center sensor
-        line_right = parts[0][-2:-1] == '1' # right sensor
-        
-        # parts[1] is expected to contain the delta_x
-        delta_x = float(parts[1])
-        
-        # parts[2] is expected to contain the delta_y
-        delta_y = float(parts[2])
-        
-        # parts[3] is expected to contain the delta_phi
-        delta_phi = float(parts[3])
-    except (IndexError, ValueError) as e:
-        raise ValueError(f"Error parsing message: {msg_str}. Ensure it contains the correct format.") from e
-    
-    return (line_left, line_center, line_right, delta_x, delta_y, delta_phi)
+WAYPOINT_REACHED_THRESHOLD_ESP = 0.025
+INTERSECTION_APPROACH_OFFSET_ESP = 0.005
+LINE_FOLLOW_SPEED_FACTOR_ESP = 0.8
+TURN_COMPLETION_THRESHOLD_ESP = math.radians(10)
+ORIENTATION_CORRECTION_THRESHOLD_ERROR_ESP = math.radians(20)
+KP_TURN_ESP = 2.0
+KI_TURN_ESP = 0.0
+KD_TURN_ESP = 0.0
+TURN_EARLY_EXIT_THRESHOLD_ESP = math.radians(15) # This constant is not used in the provided code.
+LINE_FOLLOW_COUNTER_MAX_ESP = 3
 
-def led_Control(yellow, blue, green, red) -> None:
-    """
-    Controls the state of the LEDs based on the provided parameters.
-    yellow: bool - state for yellow LED
-    blue: bool - state for blue LED
-    green: bool - state for green LED
-    red: bool - state for red LED
-    """
-    led_yellow.value(yellow)  # Turn on yellow LED when moving forward
-    led_blue.value(blue)
-    led_green.value(green)
-    led_red.value(red)
-    
+def heuristic_esp(node_key, goal_key, coords):
+    n1 = coords[node_key]
+    n2 = coords[goal_key]
+    return math.sqrt((n1[0] - n2[0])**2 + (n1[1] - n2[1])**2)
 
-class PathPlanner:
-    def __init__(self, connections, coords):
-        self.connections = connections
-        self.coords = coords
-    
-    def get_neighbors(self, node):
-        """Get valid neighbors for a given node"""
-        return self.connections.get(node, [])
-    
-    def heuristic(self, node1, node2):
-        """Calculate heuristic distance between two nodes"""
-        x1, y1 = self.coords[node1]
-        x2, y2 = self.coords[node2]
-        return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)  # Return the first element since
+def a_star_search_esp(start_key, goal_key, coords, connections):
+    if start_key not in coords or goal_key not in coords:
+        print(f"A* Error: Start ({start_key}) or Goal ({goal_key}) not in coords.")
+        return None
+    open_set = []
+    heapq.heappush(open_set, (0, start_key))
+    came_from = {}
+    g_score = {node: float('inf') for node in coords}
+    g_score[start_key] = 0
+    f_score = {node: float('inf') for node in coords}
+    f_score[start_key] = heuristic_esp(start_key, goal_key, coords)
+    open_set_hash = {start_key}
+    while open_set:
+        _, current_key = heapq.heappop(open_set)
+        if current_key not in open_set_hash: continue
+        open_set_hash.remove(current_key)
+        if current_key == goal_key:
+            path = []
+            temp_key = current_key
+            while temp_key in came_from:
+                path.append(temp_key)
+                temp_key = came_from[temp_key]
+            path.append(start_key)
+            return path[::-1]
+        if current_key not in connections: continue
+        for neighbor_key in connections[current_key]:
+            if neighbor_key not in coords:
+                print(f"A* Warning: Neighbor {neighbor_key} of {current_key} not in coords.")
+                continue
+            cost = heuristic_esp(current_key, neighbor_key, coords)
+            tentative_g_score = g_score[current_key] + cost
+            if tentative_g_score < g_score.get(neighbor_key, float('inf')):
+                came_from[neighbor_key] = current_key
+                g_score[neighbor_key] = tentative_g_score
+                new_f_score = tentative_g_score + heuristic_esp(neighbor_key, goal_key, coords)
+                f_score[neighbor_key] = new_f_score
+                heapq.heappush(open_set, (new_f_score, neighbor_key))
+                open_set_hash.add(neighbor_key)
+    print(f"A* Path from {start_key} to {goal_key} not found.")
+    return None
+
+
+class PIDController_ESP:
+    def __init__(self, Kp, Ki, Kd, setpoint, output_limits=(-MAX_SPEED_ESP, MAX_SPEED_ESP), integral_limits=(-100, 100)):
+        self.Kp = Kp
+        self.Ki = Ki
+        self.Kd = Kd
+        self.setpoint = normalize_angle(setpoint)
+        self.prev_error = 0.0
+        self.integral = 0.0
+        self.output_limits = output_limits
+        self.integral_limits = integral_limits
+
+    def update(self, measured_value, dt):
+        if dt == 0: return 0
+        error = self.setpoint - measured_value
+        error = normalize_angle(error)
+        self.integral += error * dt
+        self.integral = clip_value(self.integral, self.integral_limits[0], self.integral_limits[1])
+        derivative = (error - self.prev_error) / dt
+        output = self.Kp * error + self.Ki * self.integral + self.Kd * derivative
+        self.prev_error = error
+        if self.output_limits:
+            output = clip_value(output, self.output_limits[0], self.output_limits[1])
+        return output
+
+    def reset(self):
+        self.prev_error = 0.0
+        self.integral = 0.0
+
+    def set_setpoint(self, setpoint):
+        self.setpoint = normalize_angle(setpoint)
+        self.reset()
         
-    def find_path(self, start, goal):
-        """Find shortest valid path using A* algorithm"""
-        if start not in self.coords or goal not in self.coords:
-            return []
         
-        if start == goal:
-            return [start]
-        
-        # A* algorithm
-        open_set = []
-        heapq.heappush(open_set, (0, start))
-        came_from = {}
-        g_score = {node: float('inf') for node in self.coords}
-        g_score[start] = 0
-        f_score = {node: float('inf') for node in self.coords}
-        f_score[start] = self.heuristic(start, goal)
-        
-        while open_set:
-            current = heapq.heappop(open_set)[1]
-            
-            if current == goal:
-                # Reconstruct path
-                path = []
-                while current in came_from:
-                    path.append(current)
-                    current = came_from[current]
-                path.append(start)
-                return path[::-1]
-            
-            for neighbor in self.get_neighbors(current):
-                tentative_g_score = g_score[current] + self.heuristic(current, neighbor)
-                
-                if tentative_g_score < g_score[neighbor]:
-                    came_from[neighbor] = current
-                    g_score[neighbor] = tentative_g_score
-                    f_score[neighbor] = g_score[neighbor] + self.heuristic(neighbor, goal)
-                    
-                    if neighbor not in [item[1] for item in open_set]:
-                        heapq.heappush(open_set, (f_score[neighbor], neighbor))
-        
-        return []  # No path found
