@@ -11,6 +11,7 @@ from utils import (
 import network
 import usocket as socket
 import ustruct as struct
+import time  # <-- Add this import for timekeeping
 
 # --- Wi-Fi Setup ---
 wlan = network.WLAN(network.STA_IF)
@@ -55,6 +56,9 @@ effective_target_coord_before_correction_esp = None
 
 # Ground sensor values received from Webots
 gsValues_current_esp = [1000.0, 1000.0, 1000.0] # Default to no line
+
+# Add this variable near other navigation state variables
+adjust_after_turn_timer_esp = 0.0  # seconds
 
 def clip_value(value, min_val, max_val):
     return max(min_val, min(value, max_val))
@@ -150,12 +154,12 @@ def snap_robot_pose_esp(current_x, current_y, current_phi, prev_wp_coord_tuple, 
 
     # Only attempt to snap if centered on a line
     if is_centered_on_line:
-        print("DEBUG: Not centered on line, skipping snap.") # Uncomment for detailed snap debugging
-        
+        #print("DEBUG: Not centered on line, skipping snap.") # Uncomment for detailed snap debugging
+        pass
 
     # Only attempt to snap if centered on a line
     if not is_centered_on_line:
-        print("DEBUG: Not centered on line, skipping snap.") # Uncomment for detailed snap debugging
+        #print("DEBUG: Not centered on line, skipping snap.") # Uncomment for detailed snap debugging
         return snapped_x, snapped_y, snapped_phi, snapped_flag
 
     slope_tolerance = 0.1; snapped_phi_target = None
@@ -195,6 +199,7 @@ def process_robot_data_tcp(client_socket):
     global effective_target_coord_esp, previous_waypoint_actual_coord_esp, current_target_actual_coord_esp
     global turn_pid_esp, navigation_state_before_correction_esp, effective_target_coord_before_correction_esp
     global gsValues_current_esp
+    global adjust_after_turn_timer_esp
 
     leftSpeed_cmd = 0.0
     rightSpeed_cmd = 0.0
@@ -335,19 +340,25 @@ def process_robot_data_tcp(client_socket):
                         previous_waypoint_actual_coord_esp = INTERSECTION_COORDS_ESP[current_node_key]; current_target_actual_coord_esp = INTERSECTION_COORDS_ESP[next_node_key]
                         effective_target_coord_esp = get_offset_waypoint_esp(previous_waypoint_actual_coord_esp, current_target_actual_coord_esp, INTERSECTION_APPROACH_OFFSET_ESP, before_wp2=False)
                         navigation_state_esp = "ADJUST_AFTER_TURN"; line_follow_sub_state_esp = 'forward'
-                        # print(f"  New segment: {current_node_key} -> {next_node_key}. Targeting DEPART: ({effective_target_coord_esp[0]:.2f},{effective_target_coord_esp[1]:.2f})")
+                        print(f"  New segment: {current_node_key} -> {next_node_key}. Targeting DEPART: ({effective_target_coord_esp[0]:.2f},{effective_target_coord_esp[1]:.2f}), {planned_path_esp}")
         elif navigation_state_esp == "ADJUST_AFTER_TURN":
             current_pos_tuple = (x_esp, y_esp)
             dist_to_effective_target = math.sqrt((current_pos_tuple[0] - effective_target_coord_esp[0])**2 + (current_pos_tuple[1] - effective_target_coord_esp[1])**2)
             ls, rs, new_lfs_state, new_lfs_counter = determine_line_following_speeds_esp(gsValues_current_esp, line_follow_sub_state_esp, MAX_SPEED_ESP * 0.7, line_follow_counter_esp, LINE_FOLLOW_COUNTER_MAX_ESP)
             leftSpeed_cmd, rightSpeed_cmd = ls, rs
             line_follow_sub_state_esp = new_lfs_state; line_follow_counter_esp = new_lfs_counter
-            
+
+            # --- ADDED TIMER LOGIC ---
+            if adjust_after_turn_timer_esp == 0.0:
+                adjust_after_turn_timer_esp = time.time()  # Start timer on entry
+
+            elapsed = time.time() - adjust_after_turn_timer_esp
+
             # --- DEBUGGING PRINTS ---
-            # print(f"ESP32 State: ADJUST_AFTER_TURN. Dist to target ({effective_target_coord_esp[0]:.2f},{effective_target_coord_esp[1]:.2f}): {dist_to_effective_target:.3f}. Speeds: L={leftSpeed_cmd:.2f}, R={rightSpeed_cmd:.2f}") # Uncomment for detailed adjustment debugging
+            print(f"ESP32 State: ADJUST_AFTER_TURN. Dist to target ({effective_target_coord_esp[0]:.2f},{effective_target_coord_esp[1]:.2f}): {dist_to_effective_target:.3f}. Speeds: L={leftSpeed_cmd:.2f}, R={rightSpeed_cmd:.2f}, coords({x_esp},{y_esp})")
             # --- END DEBUGGING PRINTS ---
 
-            if dist_to_effective_target < WAYPOINT_REACHED_THRESHOLD_ESP:
+            if dist_to_effective_target < WAYPOINT_REACHED_THRESHOLD_ESP or elapsed >= 1.0:
                 # Check if this is the last segment before the goal
                 if current_path_segment_index_esp + 1 == len(planned_path_esp) -1: # The next node is the goal
                     print(f"ESP32 State: ADJUST_AFTER_TURN -> REACHED_GOAL (Approached final segment target)")
@@ -356,6 +367,7 @@ def process_robot_data_tcp(client_socket):
                     effective_target_coord_esp = get_offset_waypoint_esp(previous_waypoint_actual_coord_esp, current_target_actual_coord_esp, INTERSECTION_APPROACH_OFFSET_ESP, before_wp2=True)
                     print(f"ESP32 State: ADJUST_AFTER_TURN -> FOLLOWING_PATH (Target approach for {planned_path_esp[current_path_segment_index_esp+1]}: {effective_target_coord_esp[0]:.2f},{effective_target_coord_esp[1]:.2f})")
                     navigation_state_esp = "FOLLOWING_PATH"
+                adjust_after_turn_timer_esp = 0.0  # Reset timer for next use
         elif navigation_state_esp == "CORRECTING_ORIENTATION":
             if turn_pid_esp is None:
                 print(f"ESP32 State: CORRECTING_ORIENTATION -> {navigation_state_before_correction_esp} (PID None, returning to previous state)")
