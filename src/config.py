@@ -13,7 +13,7 @@ button_right = Pin(35, Pin.IN, Pin.PULL_DOWN)
 
 
 START_NODE_KEY_ESP = 'A0' # Or 'A0' if matching your initial Webots pose better
-GOAL_NODE_KEY_ESP = 'F8'
+GOAL_NODE_KEY_ESP = 'G8'
 
 INTERSECTION_COORDS_ESP = {
     'A0': (-0.495148, +0.361619), 'A1': (-0.392342, +0.361619), 'A2': (-0.292898, +0.361619), 'A3': (-0.190444, +0.361631),

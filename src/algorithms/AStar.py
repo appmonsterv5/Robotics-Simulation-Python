@@ -2,7 +2,20 @@ from machine import UART # type: ignore
 from time import sleep
 import math # type: ignore
 from config import START_NODE_KEY_ESP, GOAL_NODE_KEY_ESP, INTERSECTION_COORDS_ESP, VALID_CONNECTIONS_ESP
-from utils import normalize_angle, LINE_FOLLOW_COUNTER_MAX_ESP, INTERSECTION_APPROACH_OFFSET_ESP, TURN_COMPLETION_THRESHOLD_ESP, ORIENTATION_CORRECTION_THRESHOLD_ERROR_ESP, KP_TURN_ESP, KI_TURN_ESP, KD_TURN_ESP, WAYPOINT_REACHED_THRESHOLD_ESP, LINE_FOLLOW_SPEED_FACTOR_ESP
+from utils import (
+    normalize_angle, LINE_FOLLOW_COUNTER_MAX_ESP, INTERSECTION_APPROACH_OFFSET_ESP,
+    TURN_COMPLETION_THRESHOLD_ESP, ORIENTATION_CORRECTION_THRESHOLD_ERROR_ESP,
+    KP_TURN_ESP, KI_TURN_ESP, KD_TURN_ESP, WAYPOINT_REACHED_THRESHOLD_ESP,
+    LINE_FOLLOW_SPEED_FACTOR_ESP, a_star_search_esp, PIDController_ESP, clip_value  # <-- Add clip_value here
+)
+import network
+import usocket as socket
+import ustruct as struct
+import time  # <-- Add this import for timekeeping
+
+# --- Wi-Fi Setup ---
+wlan = network.WLAN(network.STA_IF)
+ESP32_IP_ADDRESS = wlan.ifconfig()[0] if wlan.isconnected() else "0.0.0.0"
 
 # --- Constants (Ported from Webots, renamed with _ESP suffix for clarity) ---
 MAX_SPEED_ESP = 6.28
@@ -44,6 +57,9 @@ effective_target_coord_before_correction_esp = None
 # Ground sensor values received from Webots
 gsValues_current_esp = [1000.0, 1000.0, 1000.0] # Default to no line
 
+# Add this variable near other navigation state variables
+adjust_after_turn_timer_esp = 0.0  # seconds
+
 def clip_value(value, min_val, max_val):
     return max(min_val, min(value, max_val))
 
@@ -77,15 +93,47 @@ def get_offset_waypoint_esp(wp1_coord_tuple, wp2_coord_tuple, offset_distance, b
 def calculate_angle_to_target_esp(current_x, current_y, target_x, target_y):
     return math.atan2(target_y - current_y, target_x - current_x)
 
+# --- PID for Line Following ---
+class LineFollowPID:
+    def __init__(self, kp=0.5, ki=0.0, kd=0.125, output_limits=(-1.0, 1.0)):
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+        self.output_limits = output_limits
+        self.integral = 0.0
+        self.prev_error = 0.0
+
+    def update(self, error, dt):
+        self.integral += error * dt
+        derivative = (error - self.prev_error) / dt if dt > 0 else 0.0
+        output = self.kp * error + self.ki * self.integral + self.kd * derivative
+        self.prev_error = error
+        return clip_value(output, self.output_limits[0], self.output_limits[1])
+
+line_pid = LineFollowPID()
+
 def determine_line_following_speeds_esp(gs_values_local, sub_state, max_s, counter_val, counter_max_val):
+    # PID-based line following for straight lines, using left-right sensor difference
     l_speed = 0.0; r_speed = 0.0; new_sub_s = sub_state; new_counter = counter_val
     line_right_detected = gs_values_local[0] < 500 # gs0 is Right
     line_center_detected = gs_values_local[1] < 500 # gs1 is Middle
     line_left_detected = gs_values_local[2] < 500 # gs2 is Left
+
+    # Error: left sensor minus right sensor (want to keep this near zero)
+    error = (gs_values_local[2] - gs_values_local[0])
+
+    # Only use PID when in 'forward' state
     if sub_state == 'forward':
-        l_speed = max_s * LINE_FOLLOW_SPEED_FACTOR_ESP; r_speed = max_s * LINE_FOLLOW_SPEED_FACTOR_ESP
-        if line_right_detected and not line_left_detected and not line_center_detected: new_sub_s = 'turn_left'; new_counter = 0
-        elif line_left_detected and not line_right_detected and not line_center_detected: new_sub_s = 'turn_right'; new_counter = 0
+        dt = 0.05  # Assume 50ms loop if not available (should be replaced with actual delta_t)
+        pid_output = line_pid.update(error, dt)
+        base_speed = max_s * LINE_FOLLOW_SPEED_FACTOR_ESP
+        l_speed = clip_value(base_speed - pid_output, 0, max_s)
+        r_speed = clip_value(base_speed + pid_output, 0, max_s)
+        # State transitions for sharp corrections
+        if line_right_detected and not line_left_detected and not line_center_detected:
+            new_sub_s = 'turn_left'; new_counter = 0
+        elif line_left_detected and not line_right_detected and not line_center_detected:
+            new_sub_s = 'turn_right'; new_counter = 0
     elif sub_state == 'turn_left':
         l_speed = 0.3 * max_s * LINE_FOLLOW_SPEED_FACTOR_ESP; r_speed = 0.7 * max_s * LINE_FOLLOW_SPEED_FACTOR_ESP
         if new_counter >= counter_max_val or line_center_detected: new_sub_s = 'forward'
@@ -95,7 +143,7 @@ def determine_line_following_speeds_esp(gs_values_local, sub_state, max_s, count
     new_counter += 1
     return l_speed, r_speed, new_sub_s, new_counter
 
-def snap_robot_pose_esp(current_x, current_y, current_phi, prev_wp_coord_tuple, target_wp_coord_tuple, local_gs_values, snap_dist_thresh=0.502, snap_angle_thresh_rad=math.radians(10)):
+def snap_robot_pose_esp(current_x, current_y, current_phi, prev_wp_coord_tuple, target_wp_coord_tuple, local_gs_values, snap_dist_thresh=0.402, snap_angle_thresh_rad=math.radians(10)):
     snapped_x, snapped_y, snapped_phi = current_x, current_y, current_phi; snapped_flag = False
     if prev_wp_coord_tuple is None or target_wp_coord_tuple is None: return snapped_x, snapped_y, snapped_phi, snapped_flag
     prev_wp_x, prev_wp_y = prev_wp_coord_tuple; target_wp_x, target_wp_y = target_wp_coord_tuple
@@ -106,12 +154,12 @@ def snap_robot_pose_esp(current_x, current_y, current_phi, prev_wp_coord_tuple, 
 
     # Only attempt to snap if centered on a line
     if is_centered_on_line:
-        print("DEBUG: Not centered on line, skipping snap.") # Uncomment for detailed snap debugging
-        
+        #print("DEBUG: Not centered on line, skipping snap.") # Uncomment for detailed snap debugging
+        pass
 
     # Only attempt to snap if centered on a line
     if not is_centered_on_line:
-        # print("DEBUG: Not centered on line, skipping snap.") # Uncomment for detailed snap debugging
+        #print("DEBUG: Not centered on line, skipping snap.") # Uncomment for detailed snap debugging
         return snapped_x, snapped_y, snapped_phi, snapped_flag
 
     slope_tolerance = 0.1; snapped_phi_target = None
@@ -151,6 +199,7 @@ def process_robot_data_tcp(client_socket):
     global effective_target_coord_esp, previous_waypoint_actual_coord_esp, current_target_actual_coord_esp
     global turn_pid_esp, navigation_state_before_correction_esp, effective_target_coord_before_correction_esp
     global gsValues_current_esp
+    global adjust_after_turn_timer_esp
 
     leftSpeed_cmd = 0.0
     rightSpeed_cmd = 0.0
@@ -291,19 +340,25 @@ def process_robot_data_tcp(client_socket):
                         previous_waypoint_actual_coord_esp = INTERSECTION_COORDS_ESP[current_node_key]; current_target_actual_coord_esp = INTERSECTION_COORDS_ESP[next_node_key]
                         effective_target_coord_esp = get_offset_waypoint_esp(previous_waypoint_actual_coord_esp, current_target_actual_coord_esp, INTERSECTION_APPROACH_OFFSET_ESP, before_wp2=False)
                         navigation_state_esp = "ADJUST_AFTER_TURN"; line_follow_sub_state_esp = 'forward'
-                        # print(f"  New segment: {current_node_key} -> {next_node_key}. Targeting DEPART: ({effective_target_coord_esp[0]:.2f},{effective_target_coord_esp[1]:.2f})")
+                        print(f"  New segment: {current_node_key} -> {next_node_key}. Targeting DEPART: ({effective_target_coord_esp[0]:.2f},{effective_target_coord_esp[1]:.2f}), {planned_path_esp}")
         elif navigation_state_esp == "ADJUST_AFTER_TURN":
             current_pos_tuple = (x_esp, y_esp)
             dist_to_effective_target = math.sqrt((current_pos_tuple[0] - effective_target_coord_esp[0])**2 + (current_pos_tuple[1] - effective_target_coord_esp[1])**2)
             ls, rs, new_lfs_state, new_lfs_counter = determine_line_following_speeds_esp(gsValues_current_esp, line_follow_sub_state_esp, MAX_SPEED_ESP * 0.7, line_follow_counter_esp, LINE_FOLLOW_COUNTER_MAX_ESP)
             leftSpeed_cmd, rightSpeed_cmd = ls, rs
             line_follow_sub_state_esp = new_lfs_state; line_follow_counter_esp = new_lfs_counter
-            
+
+            # --- ADDED TIMER LOGIC ---
+            if adjust_after_turn_timer_esp == 0.0:
+                adjust_after_turn_timer_esp = time.time()  # Start timer on entry
+
+            elapsed = time.time() - adjust_after_turn_timer_esp
+
             # --- DEBUGGING PRINTS ---
-            # print(f"ESP32 State: ADJUST_AFTER_TURN. Dist to target ({effective_target_coord_esp[0]:.2f},{effective_target_coord_esp[1]:.2f}): {dist_to_effective_target:.3f}. Speeds: L={leftSpeed_cmd:.2f}, R={rightSpeed_cmd:.2f}") # Uncomment for detailed adjustment debugging
+            print(f"ESP32 State: ADJUST_AFTER_TURN. Dist to target ({effective_target_coord_esp[0]:.2f},{effective_target_coord_esp[1]:.2f}): {dist_to_effective_target:.3f}. Speeds: L={leftSpeed_cmd:.2f}, R={rightSpeed_cmd:.2f}, coords({x_esp},{y_esp})")
             # --- END DEBUGGING PRINTS ---
 
-            if dist_to_effective_target < WAYPOINT_REACHED_THRESHOLD_ESP:
+            if dist_to_effective_target < WAYPOINT_REACHED_THRESHOLD_ESP or elapsed >= 1.0:
                 # Check if this is the last segment before the goal
                 if current_path_segment_index_esp + 1 == len(planned_path_esp) -1: # The next node is the goal
                     print(f"ESP32 State: ADJUST_AFTER_TURN -> REACHED_GOAL (Approached final segment target)")
@@ -312,6 +367,7 @@ def process_robot_data_tcp(client_socket):
                     effective_target_coord_esp = get_offset_waypoint_esp(previous_waypoint_actual_coord_esp, current_target_actual_coord_esp, INTERSECTION_APPROACH_OFFSET_ESP, before_wp2=True)
                     print(f"ESP32 State: ADJUST_AFTER_TURN -> FOLLOWING_PATH (Target approach for {planned_path_esp[current_path_segment_index_esp+1]}: {effective_target_coord_esp[0]:.2f},{effective_target_coord_esp[1]:.2f})")
                     navigation_state_esp = "FOLLOWING_PATH"
+                adjust_after_turn_timer_esp = 0.0  # Reset timer for next use
         elif navigation_state_esp == "CORRECTING_ORIENTATION":
             if turn_pid_esp is None:
                 print(f"ESP32 State: CORRECTING_ORIENTATION -> {navigation_state_before_correction_esp} (PID None, returning to previous state)")
@@ -360,6 +416,7 @@ def process_robot_data_tcp(client_socket):
         return False # Indicate failure
 # --- Main Server Loop ---
 def start_server(host='0.0.0.0', port=65432): # Port matches Webots controller
+    global wlan, ESP32_IP_ADDRESS
     if not wlan.isconnected():
         print("ESP32: Cannot start server, WiFi not connected.")
         return
@@ -420,7 +477,11 @@ def reset_initial_esp_state():
     print("ESP32: Global states reset for new run/connection.")
 
 
+def run():
+    reset_initial_esp_state()
+    start_server()
+
 # --- Start the server when main.py is executed ---
 if __name__ == "__main__":
-    reset_initial_esp_state() # Reset state when script (re)starts
-    start_server()
+    run()
+

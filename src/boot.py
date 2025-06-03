@@ -5,11 +5,10 @@
 import network
 import time
 import machine
-import main
 
 # --- Wi-Fi Credentials ---
-WIFI_SSID = "ABC"  # Replace with your Wi-Fi network name
-WIFI_PASSWORD = "123456789"  # Replace with your Wi-Fi password
+WIFI_SSID = "klaas_prive"  # Replace with your Wi-Fi network name
+WIFI_PASSWORD = "JaSaRe2004"  # Replace with your Wi-Fi password
 
 def connect_wifi(max_retries=10):
     """Connects the ESP32 to Wi-Fi."""
