@@ -1,66 +1,124 @@
-# Robotics Simulation Python
+# Robotics-Simulation-Python
 
-This repository contains code for simulating and controlling a mobile robot (e-puck) using Webots and an ESP32 microcontroller. The project demonstrates hardware-in-the-loop (HIL) simulation, line following, and A* path planning.
+## Overview
 
-## Project Structure
-
-- `src/Webots_code/`: Webots controllers for simulation.
-  - `AStar_webots.py`: Webots controller for A* path planning with TCP communication to ESP32.
-  - `OuterLine_webots.py`: Webots controller for simple line following with serial communication.
-- `src/algorithms/`: Algorithms running on the ESP32.
-  - `AStar.py`: A* path planning and navigation logic for ESP32.
-  - `OuterLine.py`: Outer line following state machine for ESP32.
-- `src/`: Core configuration and utility files.
-  - `main.py`: Entry point for ESP32, selects algorithm based on button press.
-  - `config.py`: Hardware pin configuration and map definitions.
-  - `utils.py`: Utility functions, PID controller, and A* implementation.
-  - `boot.py`: ESP32 boot script for Wi-Fi connection.
-- `.gitattributes`: Git settings.
+This project implements a Hardware-in-the-Loop (HIL) simulation for the e-puck robot using Python and MicroPython. The system enables real-time communication between Webots (robot simulator) and an ESP32 microcontroller, supporting both line-following and A* path planning algorithms.
 
 ## Requirements
 
-- **Webots** (tested on R2023a)
-- **Python 3.10+** for Webots controllers
-- **MicroPython** (with `ulab` and `usocket` modules) for ESP32
-- **ESP32** development board
+### Hardware
 
-## Setup
+- ESP32 development board (tested with ESP32 WROOM 32 dev kit)
+- PC running Webots (tested on Windows 11)
+- USB cable for ESP32-PC connection
 
-### 1. Webots Simulation
+### Software
 
-- Open Webots and load your world with the e-puck robot.
-- Assign the appropriate controller (`AStar_webots.py` or `OuterLine_webots.py`) to the robot.
-- Adjust the serial port in `OuterLine_webots.py` if needed (e.g., `COM7`).
+- **Python**: 3.10+ (for Webots controllers)
+- **MicroPython**: v1.25.0 (for ESP32)
+- **Webots**: R2023a or newer
+- **pip packages** (for PC/Webots):
+  - `numpy`
+  - `pyserial`
+- **MicroPython modules** (for ESP32):
+  - `network`
+  - `usocket`
+  - `ustruct`
+  - `machine`
+  - `time`
+  - `heapq` (or `uheapq`)
+  - `math`
 
-### 2. ESP32 Firmware
+## Setup Instructions
 
-- Flash MicroPython firmware to your ESP32.
-- Copy the contents of `src/` (excluding `Webots_code/`) to the ESP32.
-- Edit `boot.py` to set your Wi-Fi SSID and password.
-- On boot, ESP32 will connect to Wi-Fi and wait for a button press to start either the line follower or A* algorithm.
+### 1. Flash MicroPython to ESP32
 
-### 3. Running the System
+- Download MicroPython firmware (v1.25.0 or compatible).
+- Use [esptool](https://docs.micropython.org/en/latest/esp32/tutorial/intro.html) to flash the firmware.
 
-- Start Webots simulation.
-- Press the left button on ESP32 for line following, or the right button for A* path planning.
-- For A*, ensure both ESP32 and Webots are on the same network and the IP/port match in `AStar_webots.py` and `AStar.py`.
+### 2. Upload ESP32 Code
 
-## Usage
+- Copy the following files to the ESP32 using ampy, Thonny, or WebREPL:
+  - `boot.py`
+  - `main.py`
+  - `config.py`
+  - `utils.py`
+  - `algorithms/OuterLine.py (copy OuterLine.py directly to the ESP32)`
+  - `algorithms/AStar.py (Copy AStar.py directly to the ESP32)`
 
-- **Line Following:** Uses ground sensors and a simple state machine to follow a line. Communication is via serial.
-- **A* Path Planning:** Computes a path on a grid and navigates using PID control. Communication is via TCP sockets.
+### 3. Configure Wi-Fi
 
-## Troubleshooting
+- Edit `boot.py` and set your Wi-Fi SSID and password.
+- On boot, ESP32 will connect to Wi-Fi and print its IP address.
+
+### 4. Webots Setup
+
+- Open Webots and load the e-puck simulation world.
+- Place the provided controllers in the appropriate Webots project folders:
+  - `Webots_code/OuterLine_webots.py`
+  - `Webots_code/AStar_webots.py`
+- Adjust the serial port in `OuterLine_webots.py` (e.g., `COM7`) to match your system.
+- For A* path planning, set the ESP32 IP address in `AStar_webots.py` (`HOST = '...'`).
+
+### 5. Install Python Dependencies (on PC)
+
+```bash
+pip install numpy pyserial
+```
+
+### 6. Running the Experiment
+
+#### a. Start ESP32
+
+- Reset or power on the ESP32.
+- Wait for Wi-Fi connection (check serial output for IP).
+
+#### b. Start Webots
+
+- Run the desired controller:
+  - For line following (note, This uses USB Serial): `OuterLine_webots.py`
+  - For A* path planning: `AStar_webots.py`
+
+#### c. Select Algorithm
+
+- On ESP32 depending on which Webots code is in use, press:
+  - **Left button**: Start Outer Line Follower
+  - **Right button**: Start A* Path Planner
+
+#### d. Observe
+
+- The robot will follow the line or navigate using A* path planning.
+- Debug output is available via serial (ESP32) and Webots console.
+
+## File Structure
+
+```
+src/
+  main.py                # Entry point for ESP32
+  boot.py                # Wi-Fi setup for ESP32
+  config.py              # Pin and map configuration
+  utils.py               # Utility functions and PID
+  algorithms/
+    OuterLine.py         # Outer line following logic
+    AStar.py             # A* path planning logic
+  Webots_code/
+    OuterLine_webots.py  # Webots controller for line following
+    AStar_webots.py      # Webots controller for A* path planning
+```
+
+## Reproducing the Main Experiment
+
+1. **Connect ESP32 to Wi-Fi** (see serial output for confirmation).
+2. **Start Webots** and run the appropriate controller.
+3. **Press the button** on ESP32 to select the algorithm.
+4. **Observe robot behavior** in Webots simulation.
+
+## Notes
 
 - Ensure only one program accesses the ESP32 serial port at a time (close Thonny before running Webots).
-- If Wi-Fi connection fails, check credentials in `boot.py`.
-- For TCP, verify ESP32 IP address and port.
+- Adjust pin numbers and serial ports as needed for your hardware.
+- For troubleshooting, check serial output from ESP32 and Webots console logs.
 
 ## License
 
-MIT License
-
----
-
-**Author:** R. Kleine  
-**Last update:** June 2025
+This project is for educational use as part of the "Robotics and Python" assignment.
