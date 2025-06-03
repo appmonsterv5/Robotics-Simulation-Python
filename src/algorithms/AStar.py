@@ -109,20 +109,14 @@ class LineFollowPID:
 line_pid = LineFollowPID()
 
 def determine_line_following_speeds_esp(gs_values_local, sub_state, max_s, counter_val, counter_max_val):
-    # PID-based line following for straight lines
+    # PID-based line following for straight lines, using left-right sensor difference
     l_speed = 0.0; r_speed = 0.0; new_sub_s = sub_state; new_counter = counter_val
     line_right_detected = gs_values_local[0] < 500 # gs0 is Right
     line_center_detected = gs_values_local[1] < 500 # gs1 is Middle
     line_left_detected = gs_values_local[2] < 500 # gs2 is Left
 
-    # Calculate error: negative if line is to the left, positive if to the right
-    # Use weighted sum: left = -1, center = 0, right = +1
-    gs_weights = [-1, 0, 1]
-    gs_binary = [int(gs < 500) for gs in gs_values_local]
-    error = sum(w * v for w, v in zip(gs_weights, gs_binary))
-    # If all sensors off line, keep previous error (or set to 0)
-    if sum(gs_binary) == 0:
-        error = 0
+    # Error: left sensor minus right sensor (want to keep this near zero)
+    error = (gs_values_local[2] - gs_values_local[0])
 
     # Only use PID when in 'forward' state
     if sub_state == 'forward':
@@ -145,7 +139,7 @@ def determine_line_following_speeds_esp(gs_values_local, sub_state, max_s, count
     new_counter += 1
     return l_speed, r_speed, new_sub_s, new_counter
 
-def snap_robot_pose_esp(current_x, current_y, current_phi, prev_wp_coord_tuple, target_wp_coord_tuple, local_gs_values, snap_dist_thresh=0.502, snap_angle_thresh_rad=math.radians(10)):
+def snap_robot_pose_esp(current_x, current_y, current_phi, prev_wp_coord_tuple, target_wp_coord_tuple, local_gs_values, snap_dist_thresh=0.402, snap_angle_thresh_rad=math.radians(10)):
     snapped_x, snapped_y, snapped_phi = current_x, current_y, current_phi; snapped_flag = False
     if prev_wp_coord_tuple is None or target_wp_coord_tuple is None: return snapped_x, snapped_y, snapped_phi, snapped_flag
     prev_wp_x, prev_wp_y = prev_wp_coord_tuple; target_wp_x, target_wp_y = target_wp_coord_tuple
@@ -161,7 +155,7 @@ def snap_robot_pose_esp(current_x, current_y, current_phi, prev_wp_coord_tuple, 
 
     # Only attempt to snap if centered on a line
     if not is_centered_on_line:
-        # print("DEBUG: Not centered on line, skipping snap.") # Uncomment for detailed snap debugging
+        print("DEBUG: Not centered on line, skipping snap.") # Uncomment for detailed snap debugging
         return snapped_x, snapped_y, snapped_phi, snapped_flag
 
     slope_tolerance = 0.1; snapped_phi_target = None
