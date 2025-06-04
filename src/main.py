@@ -47,10 +47,12 @@ Or click STOP in Thonny to return to the REPL.
 while True:
     if button_left() == True and button_right() == False:
         print("Button left pressed. Starting Outer Line Follower...")
+        led_board.value(0)
         OuterLine.run()
         break
     elif button_right() == True and button_left() == False:
         print("Button right pressed. Starting A* Path Planner...")
+        led_board.value(1)
         AStar.run()
         break
     else:
