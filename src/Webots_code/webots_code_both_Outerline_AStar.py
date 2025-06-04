@@ -25,7 +25,6 @@ timestep = int(robot.getBasicTimeStep())
 delta_t = timestep / 1000.0
 
 # Initialize Webots devices
-
 leftMotor = robot.getDevice('left wheel motor')
 rightMotor = robot.getDevice('right wheel motor')
 leftMotor.setPosition(float('inf'))
@@ -49,23 +48,21 @@ for i in range(3):
     gs[i].enable(timestep)
 
 # --- Socket Communication Setup (Client) ---
-HOST = '192.168.137.42'  # Standard loopback interface address (localhost) - replace with ESP32 IP
-PORT = 65432        # Port to listen on (non-privileged ports are > 1023)
+HOST = '192.168.137.42'  # ESP32 IP address
+PORT = 65432             # Port to connect to ESP32
 
 print(f"Attempting to connect to ESP32 at {HOST}:{PORT}...")
 try:
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.connect((HOST, PORT))
     print("Successfully connected to ESP32!")
-
 except socket.error as e:
     print(f"Failed to connect to ESP32: {e}")
     print("Please ensure the ESP32 server is running and its IP is correct.")
     robot.simulationSetMode(robot.SIMULATION_MODE_PAUSE) # Pause simulation on connection failure
     exit() # Exit Webots controller
 
-# Initial robot pose (adjust to match your simulation's starting point if different from ESP32's expectation)
-# Note: The ESP32 will maintain its own internal pose. This is mainly for initial setup consistency.
+# Initial robot pose (for consistency, not used for control)
 x = 0.0
 y = 0.0
 phi = 0
@@ -77,10 +74,9 @@ while robot.step(timestep) != -1:
     gsValues = [s.getValue() for s in gs]
 
     # Calculate wheel speeds for odometry on ESP32
-    if oldEncoderValues[0] == 0.0 and oldEncoderValues[1] == 0.0: # First iteration hack
+    if oldEncoderValues[0] == 0.0 and oldEncoderValues[1] == 0.0: # First iteration
         wl = 0.0
         wr = 0.0
-
     else:
         wl = (encoderValues[0] - oldEncoderValues[0]) / delta_t
         wr = (encoderValues[1] - oldEncoderValues[1]) / delta_t
@@ -116,7 +112,7 @@ while robot.step(timestep) != -1:
     oldEncoderValues = encoderValues[:]
 
     # Debugging (optional, as ESP32 will print detailed state)
-    #print(f"Webots: GS: {gsValues[0]:.0f},{gsValues[1]:.0f},{gsValues[2]:.0f} | Sent: Wl:{wl:.2f}, Wr:{wr:.2f} | Rcvd: L:{leftSpeed:.2f}, R:{rightSpeed:.2f}")
+    # print(f"Webots: GS: {gsValues[0]:.0f},{gsValues[1]:.0f},{gsValues[2]:.0f} | Sent: Wl:{wl:.2f}, Wr:{wr:.2f} | Rcvd: L:{leftSpeed:.2f}, R:{rightSpeed:.2f}")
 
 print("Webots controller finished.")
 client_socket.close()

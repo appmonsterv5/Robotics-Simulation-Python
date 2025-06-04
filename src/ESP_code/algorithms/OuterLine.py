@@ -13,6 +13,10 @@ ESP32_IP_ADDRESS = wlan.ifconfig()[0] if wlan.isconnected() else "0.0.0.0"
 MAX_SPEED = 6.28
 
 def determine_line_following_state(gs_values):
+    """
+    Determine the robot's line following state based on ground sensor values.
+    Returns one of: 'forward', 'turn_left', 'turn_right', 'lost'.
+    """
     left_on = gs_values[2] < 500
     center_on = gs_values[1] < 500
     right_on = gs_values[0] < 500
@@ -29,6 +33,9 @@ def determine_line_following_state(gs_values):
         return 'forward'
 
 def determine_line_following_speeds(gs_values):
+    """
+    Compute left and right wheel speeds based on the current line following state.
+    """
     base_speed = MAX_SPEED * 1
     state = determine_line_following_state(gs_values)
     if state == 'forward':
@@ -43,6 +50,9 @@ def determine_line_following_speeds(gs_values):
         return 0.0, 0.0
 
 def set_led_by_state(state):
+    """
+    Set the LEDs to indicate the current robot state.
+    """
     if state == 'forward':
         led_Control(1, 0, 0, 0)  # Yellow
     elif state == 'turn_right':
@@ -55,6 +65,9 @@ def set_led_by_state(state):
         led_Control(0, 0, 0, 0)  # All off
 
 def process_robot_data_tcp(client_socket):
+    """
+    Handle a single TCP message from Webots, process sensor data, and send wheel speeds.
+    """
     try:
         expected_bytes = 24
         received = b''
@@ -79,6 +92,9 @@ def process_robot_data_tcp(client_socket):
         return False
 
 def start_server(host='0.0.0.0', port=65432):
+    """
+    Start the TCP server for Webots communication (OuterLine mode).
+    """
     print("ESP32 OuterLine: Waiting for Webots connection...")
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -105,6 +121,9 @@ def start_server(host='0.0.0.0', port=65432):
     server_socket.close()
 
 def run():
+    """
+    Entry point: start the OuterLine TCP server.
+    """
     start_server()
 
 if __name__ == "__main__":

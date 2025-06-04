@@ -28,6 +28,7 @@ GRID_LAYOUT = [
 
 class RobotVisualizer:
     def __init__(self, host='192.168.137.42', port=65433):
+        # Initialize plot, socket, and state variables
         self.fig, self.ax = plt.subplots(figsize=(12, 8))
         self.robot_position = None  # Current node (e.g., 'E4')
         self.planned_path = []      # List of nodes (e.g., ['B0', 'B4', 'C4'])
@@ -36,8 +37,8 @@ class RobotVisualizer:
         self.connected = False
         self.vis_path_nodes = []
         self.vis_current_node = None
-        
-        # Setup socket
+
+        # Setup socket for communication with robot
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.settimeout(0.1)
         self.host = host
@@ -47,11 +48,15 @@ class RobotVisualizer:
         self.recv_buffer = ""
         self.socket_thread = None
         self.try_connect()
-        
+
         # Setup grid visualization
         self.setup_grid()
-        
+
     def try_connect(self):
+        """
+        Attempt to connect to the robot via TCP socket.
+        If already connected, do nothing.
+        """
         if not self.connected:
             try:
                 if self.socket:
@@ -71,7 +76,10 @@ class RobotVisualizer:
                 time.sleep(1)  # Add delay between retries
 
     def socket_reader(self):
-        """Background thread: read from socket and put complete JSON messages in queue."""
+        """
+        Background thread: read from socket and put complete JSON messages in queue.
+        Handles partial messages using a buffer and splits on newline.
+        """
         while not self.stop_event.is_set() and self.connected:
             try:
                 data = self.socket.recv(1024)
@@ -97,7 +105,10 @@ class RobotVisualizer:
                 break
 
     def find_node_position(self, node):
-        """Convert node name (e.g., 'E4') to grid position"""
+        """
+        Convert node name (e.g., 'E4') to grid position (x, y) for plotting.
+        Returns (x, y) tuple or None if not found.
+        """
         for i, row in enumerate(GRID_LAYOUT):
             for j, cell in enumerate(row):
                 if cell == node:
@@ -105,9 +116,11 @@ class RobotVisualizer:
         return None
 
     def setup_grid(self):
+        """
+        Draw the grid, obstacles, and node labels on the plot.
+        """
         self.ax.clear()
-        
-        # Draw grid cells
+
         for i, row in enumerate(GRID_LAYOUT):
             for j, cell in enumerate(row):
                 if cell == 1:  # Wall/obstacle
@@ -120,7 +133,7 @@ class RobotVisualizer:
                         self.ax.scatter(j, 14-i, c='blue', s=50)
                         self.ax.annotate(cell, (j, 14-i), xytext=(5, 5), 
                                        textcoords='offset points')
-        
+
         # Set plot properties
         self.ax.set_title('Robot Navigation Visualization')
         self.ax.grid(True)
@@ -129,6 +142,10 @@ class RobotVisualizer:
         self.ax.set_ylim(-1, 15)
 
     def update_plot(self, frame):
+        """
+        Update the plot with the latest robot position and planned path.
+        Called periodically by FuncAnimation.
+        """
         if not self.connected:
             self.try_connect()
             return
@@ -164,6 +181,9 @@ class RobotVisualizer:
             self.fig.canvas.draw_idle()
 
     def close(self):
+        """
+        Clean up resources: stop threads and close socket.
+        """
         self.stop_event.set()
         if self.socket:
             try:
@@ -174,6 +194,9 @@ class RobotVisualizer:
             self.socket_thread.join(timeout=1)
 
     def run(self):
+        """
+        Start the matplotlib animation loop.
+        """
         ani = FuncAnimation(self.fig, self.update_plot,
                           interval=300,  # Slower interval to match robot update rate
                           cache_frame_data=False,
@@ -181,6 +204,7 @@ class RobotVisualizer:
         plt.show()
 
 if __name__ == "__main__":
+    # Entry point: create visualizer and run until closed
     visualizer = RobotVisualizer()
     try:
         visualizer.run()

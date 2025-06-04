@@ -69,14 +69,21 @@ adjust_after_turn_timer_esp = 0.0  # seconds
 goal_reached_visualisation_sent = False
 
 def clip_value(value, min_val, max_val):
+    """Clamp a value between min_val and max_val."""
     return max(min_val, min(value, max_val))
 
-def get_robot_speeds_esp(wl_local, wr_local, r_local, d_local): # Same as before
+def get_robot_speeds_esp(wl_local, wr_local, r_local, d_local):
+    """
+    Calculate linear and angular speed from wheel speeds.
+    """
     u_local = r_local / 2.0 * (wr_local + wl_local)
     w_local = r_local / d_local * (wr_local - wl_local)
     return u_local, w_local
 
-def get_robot_pose_esp(u_local, w_local, x_old, y_old, phi_old, delta_t_local): # Same as before
+def get_robot_pose_esp(u_local, w_local, x_old, y_old, phi_old, delta_t_local):
+    """
+    Update robot pose using unicycle model.
+    """
     delta_phi = w_local * delta_t_local
     phi_new = phi_old + delta_phi
     phi_new = normalize_angle(phi_new)
@@ -89,6 +96,10 @@ def get_robot_pose_esp(u_local, w_local, x_old, y_old, phi_old, delta_t_local): 
 
 # --- Navigation Logic (Ported) --- (Same as before, e.g., get_offset_waypoint_esp, etc.)
 def get_offset_waypoint_esp(wp1_coord_tuple, wp2_coord_tuple, offset_distance, before_wp2):
+    """
+    Compute a point offset along the line between two waypoints.
+    Used for approach/departure points at intersections.
+    """
     wp1_x, wp1_y = wp1_coord_tuple; wp2_x, wp2_y = wp2_coord_tuple
     direction_vector_x = wp2_x - wp1_x; direction_vector_y = wp2_y - wp1_y
     distance_wp1_wp2 = math.sqrt(direction_vector_x**2 + direction_vector_y**2)
@@ -99,10 +110,16 @@ def get_offset_waypoint_esp(wp1_coord_tuple, wp2_coord_tuple, offset_distance, b
     else: return (wp1_x + unit_vector_x * actual_offset, wp1_y + unit_vector_y * actual_offset)
 
 def calculate_angle_to_target_esp(current_x, current_y, target_x, target_y):
+    """
+    Calculate angle from current position to target position.
+    """
     return math.atan2(target_y - current_y, target_x - current_x)
 
 # --- PID for Line Following ---
 class LineFollowPID:
+    """
+    Simple PID controller for line following.
+    """
     def __init__(self, kp=0.5, ki=0.0, kd=0.125, output_limits=(-1.0, 1.0)):
         self.kp = kp
         self.ki = ki
@@ -121,6 +138,9 @@ class LineFollowPID:
 line_pid = LineFollowPID()
 
 def determine_line_following_speeds_esp(gs_values_local, sub_state, max_s, counter_val, counter_max_val):
+    """
+    Determine left/right wheel speeds for line following using PID and state machine.
+    """
     # PID-based line following for straight lines, using left-right sensor difference
     l_speed = 0.0; r_speed = 0.0; new_sub_s = sub_state; new_counter = counter_val
     line_right_detected = gs_values_local[0] < 500 # gs0 is Right
@@ -152,6 +172,9 @@ def determine_line_following_speeds_esp(gs_values_local, sub_state, max_s, count
     return l_speed, r_speed, new_sub_s, new_counter
 
 def snap_robot_pose_esp(current_x, current_y, current_phi, prev_wp_coord_tuple, target_wp_coord_tuple, local_gs_values, snap_dist_thresh=0.402, snap_angle_thresh_rad=math.radians(10)):
+    """
+    Snap robot pose to ideal line if centered, to reduce odometry drift.
+    """
     snapped_x, snapped_y, snapped_phi = current_x, current_y, current_phi; snapped_flag = False
     if prev_wp_coord_tuple is None or target_wp_coord_tuple is None: return snapped_x, snapped_y, snapped_phi, snapped_flag
     prev_wp_x, prev_wp_y = prev_wp_coord_tuple; target_wp_x, target_wp_y = target_wp_coord_tuple
@@ -205,6 +228,9 @@ visualisation_client_sock = None
 visualisation_connected = False
 
 def start_visualisation_server(host='0.0.0.0', port=65433, wait_timeout=10):
+    """
+    Start TCP server for visualisation client (e.g., matplotlib GUI).
+    """
     global visualisation_client_sock, visualisation_connected
     vis_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     vis_server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -230,7 +256,9 @@ def start_visualisation_server(host='0.0.0.0', port=65433, wait_timeout=10):
     vis_server_socket.close()
 
 def send_to_visualisation(data_dict):
-    #print("function called send_to_visualisation_is_called")
+    """
+    Send a JSON message to the visualisation client.
+    """
     global visualisation_client_sock, visualisation_connected
     if not visualisation_connected or visualisation_client_sock is None:
         return
@@ -246,232 +274,12 @@ def send_to_visualisation(data_dict):
             pass
         visualisation_client_sock = None
 
-def process_robot_data_tcp(client_socket):
-    global x_esp, y_esp, phi_esp
-    global line_follow_sub_state_esp, line_follow_counter_esp
-    global navigation_state_esp, planned_path_esp, current_path_segment_index_esp
-    global effective_target_coord_esp, previous_waypoint_actual_coord_esp, current_target_actual_coord_esp
-    global turn_pid_esp, navigation_state_before_correction_esp, effective_target_coord_before_correction_esp
-    global gsValues_current_esp
-    global adjust_after_turn_timer_esp
-    global last_at_node_key_esp
-    global goal_reached_visualisation_sent  # <-- Add this
-
-    leftSpeed_cmd = 0.0
-    rightSpeed_cmd = 0.0
-
-    try:
-        # Receive 6 floats (gs0, gs1, gs2, wl, wr, delta_t) = 6 * 4 = 24 bytes
-        # The format string '<6f' means little-endian, 6 floats
-        expected_bytes = 24
-        received_binary_data = b''
-        
-        # Loop to ensure all expected bytes are received
-        bytes_received_this_iter = 0
-        while len(received_binary_data) < expected_bytes:
-            packet = client_socket.recv(expected_bytes - len(received_binary_data))
-            if not packet: # Connection closed by client
-                print("ESP32: Client disconnected during recv (no packet).")
-                return False # Indicate connection closed
-            received_binary_data += packet
-            bytes_received_this_iter += len(packet)
-
-        if len(received_binary_data) != expected_bytes:
-            print(f"ESP32 Error: Received {len(received_binary_data)} bytes, expected {expected_bytes}. Discarding incomplete data.")
-            return False # Discard incomplete data and signal connection issue
-
-        gs0, gs1, gs2, wl_from_webots, wr_from_webots, delta_t_from_webots = struct.unpack('<6f', received_binary_data)
-        gsValues_current_esp = [gs0, gs1, gs2]
-
-        # --- ESP32's Internal Localization (using wl, wr from Webots) ---
-        u_esp, w_esp = get_robot_speeds_esp(wl_from_webots, wr_from_webots, R_ESP, D_ESP)
-        x_esp, y_esp, phi_esp = get_robot_pose_esp(u_esp, w_esp, x_esp, y_esp, phi_esp, delta_t_from_webots)
-
-        # === BEGIN STATE MACHINE LOGIC ===
-        if navigation_state_esp == "IDLE":
-            leftSpeed_cmd, rightSpeed_cmd = 0.0, 0.0
-            navigation_state_esp = "PLANNING"
-            print(f"ESP32: Reached waypoint {at_node_key}. Sending to visualisation.") # Optional: for ESP32 console logging
-            send_to_visualisation({"current_node": None, "planned_path": []})
-        elif navigation_state_esp == "PLANNING":
-            leftSpeed_cmd, rightSpeed_cmd = 0.0, 0.0
-            planned_path_esp = a_star_search_esp(START_NODE_KEY_ESP, GOAL_NODE_KEY_ESP, INTERSECTION_COORDS_ESP, VALID_CONNECTIONS_ESP)
-            if planned_path_esp and len(planned_path_esp) >= 2:
-                current_path_segment_index_esp = 0
-                current_node_key = planned_path_esp[0]; next_node_key = planned_path_esp[1]
-                previous_waypoint_actual_coord_esp = INTERSECTION_COORDS_ESP[current_node_key]
-                current_target_actual_coord_esp = INTERSECTION_COORDS_ESP[next_node_key]
-                initial_desired_phi = calculate_angle_to_target_esp(previous_waypoint_actual_coord_esp[0], previous_waypoint_actual_coord_esp[1], current_target_actual_coord_esp[0], current_target_actual_coord_esp[1])
-                phi_error = normalize_angle(initial_desired_phi - phi_esp)
-                if abs(phi_error) > TURN_COMPLETION_THRESHOLD_ESP:
-                    turn_pid_esp = PIDController_ESP(KP_TURN_ESP, KI_TURN_ESP, KD_TURN_ESP, initial_desired_phi, output_limits=(-1.0, 1.0))
-                    effective_target_coord_after_initial_turn = get_offset_waypoint_esp(previous_waypoint_actual_coord_esp, current_target_actual_coord_esp, INTERSECTION_APPROACH_OFFSET_ESP, before_wp2=False)
-                    navigation_state_before_correction_esp = "ADJUST_AFTER_TURN"; effective_target_coord_before_correction_esp = effective_target_coord_after_initial_turn
-                    navigation_state_esp = "CORRECTING_ORIENTATION"
-                else:
-                    effective_target_coord_esp = get_offset_waypoint_esp(previous_waypoint_actual_coord_esp, current_target_actual_coord_esp, INTERSECTION_APPROACH_OFFSET_ESP, before_wp2=False)
-                    navigation_state_esp = "ADJUST_AFTER_TURN"
-                line_follow_sub_state_esp = 'forward'
-                # Send planned path and starting node to visualisation
-                send_to_visualisation({"current_node": planned_path_esp[0], "planned_path": planned_path_esp})
-            else:
-                navigation_state_esp = "ERROR"
-        elif navigation_state_esp == "FOLLOWING_PATH":
-            current_pos_tuple = (x_esp, y_esp)
-            dist_to_effective_target = math.sqrt((current_pos_tuple[0] - effective_target_coord_esp[0])**2 + (current_pos_tuple[1] - effective_target_coord_esp[1])**2)
-            ls, rs, new_lfs_state, new_lfs_counter = determine_line_following_speeds_esp(gsValues_current_esp, line_follow_sub_state_esp, MAX_SPEED_ESP, line_follow_counter_esp, LINE_FOLLOW_COUNTER_MAX_ESP)
-            leftSpeed_cmd, rightSpeed_cmd = ls, rs
-            line_follow_sub_state_esp = new_lfs_state; line_follow_counter_esp = new_lfs_counter
-            nx,ny,nphi,snapped = snap_robot_pose_esp(x_esp, y_esp, phi_esp, previous_waypoint_actual_coord_esp, current_target_actual_coord_esp, gsValues_current_esp)
-            if snapped:
-                x_esp, y_esp, phi_esp = nx,ny,nphi
-            
-            if previous_waypoint_actual_coord_esp and current_target_actual_coord_esp:
-                segment_angle = calculate_angle_to_target_esp(previous_waypoint_actual_coord_esp[0], previous_waypoint_actual_coord_esp[1], current_target_actual_coord_esp[0], current_target_actual_coord_esp[1])
-                phi_err_seg = normalize_angle(segment_angle - phi_esp)
-                if abs(phi_err_seg) > ORIENTATION_CORRECTION_THRESHOLD_ERROR_ESP:
-                    if turn_pid_esp is None: turn_pid_esp = PIDController_ESP(KP_TURN_ESP, KI_TURN_ESP, KD_TURN_ESP, segment_angle, output_limits=(-1.0, 1.0))
-                    else: turn_pid_esp.set_setpoint(segment_angle)
-                    navigation_state_before_correction_esp = "FOLLOWING_PATH"; effective_target_coord_before_correction_esp = effective_target_coord_esp
-                    navigation_state_esp = "CORRECTING_ORIENTATION"
-            if dist_to_effective_target < WAYPOINT_REACHED_THRESHOLD_ESP:
-                navigation_state_esp = "AT_INTERSECTION"; leftSpeed_cmd, rightSpeed_cmd = 0.0, 0.0
-                at_node_key = planned_path_esp[current_path_segment_index_esp + 1]
-                last_at_node_key_esp = at_node_key  # <-- Track last intersection
-                send_to_visualisation({"current_node": at_node_key})
-                print(f"ESP32: Reached waypoint {at_node_key}. Sending to visualisation.") # Optional: for ESP32 console logging
-        elif navigation_state_esp == "AT_INTERSECTION":
-            leftSpeed_cmd, rightSpeed_cmd = 0.0, 0.0
-            at_node_key = planned_path_esp[current_path_segment_index_esp + 1]
-            last_at_node_key_esp = at_node_key  # <-- Track last intersection
-            print(f"ESP32: At intersection: {at_node_key}") # Reduce verbosity
-            send_to_visualisation({"current_node": at_node_key})
-            if at_node_key == GOAL_NODE_KEY_ESP:
-                print(f"ESP32: At GOAL intersection: {at_node_key}")  # <-- Print goal intersection
-                navigation_state_esp = "REACHED_GOAL"
-            else:
-                if current_path_segment_index_esp + 2 < len(planned_path_esp):
-                    node_after_turn_key = planned_path_esp[current_path_segment_index_esp + 2]
-                    coord_at_intersection = INTERSECTION_COORDS_ESP[at_node_key]; coord_node_after_turn = INTERSECTION_COORDS_ESP[node_after_turn_key]
-                    desired_phi_for_turn = calculate_angle_to_target_esp(coord_at_intersection[0], coord_at_intersection[1], coord_node_after_turn[0], coord_node_after_turn[1])
-                    if turn_pid_esp is None: turn_pid_esp = PIDController_ESP(KP_TURN_ESP, KI_TURN_ESP, KD_TURN_ESP, desired_phi_for_turn, output_limits=(-1.0,1.0))
-                    else: turn_pid_esp.set_setpoint(desired_phi_for_turn)
-                    navigation_state_esp = "TURNING"
-                else:
-                    navigation_state_esp = "ERROR"
-        elif navigation_state_esp == "TURNING":
-            if turn_pid_esp is None: navigation_state_esp = "ERROR"; leftSpeed_cmd, rightSpeed_cmd = 0.0,0.0
-            else:
-                turn_effort = turn_pid_esp.update(phi_esp, delta_t_from_webots); turn_base_speed = MAX_SPEED_ESP * 0.35
-                leftSpeed_cmd = -turn_effort * turn_base_speed; rightSpeed_cmd = turn_effort * turn_base_speed
-                phi_error_in_turn = normalize_angle(turn_pid_esp.setpoint - phi_esp)
-
-                if abs(phi_error_in_turn) < TURN_COMPLETION_THRESHOLD_ESP:
-                    current_path_segment_index_esp += 1
-                    if current_path_segment_index_esp + 1 >= len(planned_path_esp):
-                         # This implies the turn was towards the final segment, and the next node IS the goal.
-                         # However, the goal itself is identified and handled when transitioning from FOLLOWING_PATH to AT_INTERSECTION.
-                         # If we just completed a turn and the *next* node is the goal, AT_INTERSECTION will handle goal announcement.
-                         # If, somehow, current_path_segment_index_esp points to the goal itself after incrementing,
-                         # it means we were at the node *before* the goal, turned, and now logic might be a bit off.
-                         # The primary goal detection is in AT_INTERSECTION.
-                         # For now, assume normal path progression: Turn -> Adjust -> Follow -> At_Intersection (which could be goal)
-                         # If this leads to an error state or REACHED_GOAL directly, it means the path was very short (e.g. Start -> Turn -> Goal)
-                         # Let's keep the existing logic that relies on AT_INTERSECTION to declare the goal has been reached.
-                         # If the increment makes current_path_segment_index_esp point to the *last node* (goal),
-                         # then the next state should correctly set up to approach it.
-                         # It's safer to transition to ADJUST_AFTER_TURN to establish line following for the last segment.
-                        current_node_key = planned_path_esp[current_path_segment_index_esp]
-                        next_node_key = planned_path_esp[current_path_segment_index_esp + 1] # This will be the GOAL_NODE_KEY_ESP
-                        previous_waypoint_actual_coord_esp = INTERSECTION_COORDS_ESP[current_node_key]
-                        current_target_actual_coord_esp = INTERSECTION_COORDS_ESP[next_node_key]
-                        effective_target_coord_esp = get_offset_waypoint_esp(previous_waypoint_actual_coord_esp, current_target_actual_coord_esp, INTERSECTION_APPROACH_OFFSET_ESP, before_wp2=False)
-                        navigation_state_esp = "ADJUST_AFTER_TURN"; line_follow_sub_state_esp = 'forward'
-
-                    else: # Normal case: more segments exist after this turn
-                        current_node_key = planned_path_esp[current_path_segment_index_esp]; next_node_key = planned_path_esp[current_path_segment_index_esp + 1]
-                        previous_waypoint_actual_coord_esp = INTERSECTION_COORDS_ESP[current_node_key]; current_target_actual_coord_esp = INTERSECTION_COORDS_ESP[next_node_key]
-                        effective_target_coord_esp = get_offset_waypoint_esp(previous_waypoint_actual_coord_esp, current_target_actual_coord_esp, INTERSECTION_APPROACH_OFFSET_ESP, before_wp2=False)
-                        navigation_state_esp = "ADJUST_AFTER_TURN"; line_follow_sub_state_esp = 'forward'
-        elif navigation_state_esp == "ADJUST_AFTER_TURN":
-            current_pos_tuple = (x_esp, y_esp)
-            dist_to_effective_target = math.sqrt((current_pos_tuple[0] - effective_target_coord_esp[0])**2 + (current_pos_tuple[1] - effective_target_coord_esp[1])**2)
-            ls, rs, new_lfs_state, new_lfs_counter = determine_line_following_speeds_esp(gsValues_current_esp, line_follow_sub_state_esp, MAX_SPEED_ESP * 0.7, line_follow_counter_esp, LINE_FOLLOW_COUNTER_MAX_ESP)
-            leftSpeed_cmd, rightSpeed_cmd = ls, rs
-            line_follow_sub_state_esp = new_lfs_state; line_follow_counter_esp = new_lfs_counter
-
-            if adjust_after_turn_timer_esp == 0.0:
-                adjust_after_turn_timer_esp = time.time()
-
-            elapsed = time.time() - adjust_after_turn_timer_esp
-
-            if dist_to_effective_target < WAYPOINT_REACHED_THRESHOLD_ESP or elapsed >= 1.0: # 1.0 second timeout
-                # Check if this adjustment was for the segment leading to the goal
-                # planned_path_esp[current_path_segment_index_esp] is current start of segment
-                # planned_path_esp[current_path_segment_index_esp + 1] is current end of segment (target)
-                if planned_path_esp[current_path_segment_index_esp + 1] == GOAL_NODE_KEY_ESP:
-                     # If the target of this ADJUST phase *is* the goal, we should transition to approach the goal directly
-                     # This means setting the effective_target_coord_esp to the actual goal's approach offset.
-                    effective_target_coord_esp = get_offset_waypoint_esp(
-                        INTERSECTION_COORDS_ESP[planned_path_esp[current_path_segment_index_esp]], # from current node
-                        INTERSECTION_COORDS_ESP[GOAL_NODE_KEY_ESP],                                # to goal node
-                        INTERSECTION_APPROACH_OFFSET_ESP,
-                        before_wp2=True # Approach offset *before* the goal
-                    )
-                    navigation_state_esp = "FOLLOWING_PATH" # Follow path to the goal's approach point
-                else: # Not the goal segment yet, set up for normal line following to next intersection approach
-                    effective_target_coord_esp = get_offset_waypoint_esp(
-                        previous_waypoint_actual_coord_esp, # From start of current segment
-                        current_target_actual_coord_esp,    # To end of current segment (next intersection)
-                        INTERSECTION_APPROACH_OFFSET_ESP,
-                        before_wp2=True # Approach offset *before* the next intersection
-                    )
-                    navigation_state_esp = "FOLLOWING_PATH"
-                adjust_after_turn_timer_esp = 0.0
-        elif navigation_state_esp == "CORRECTING_ORIENTATION":
-            if turn_pid_esp is None:
-                navigation_state_esp = navigation_state_before_correction_esp
-            else:
-                turn_effort = turn_pid_esp.update(phi_esp, delta_t_from_webots); correction_turn_speed = MAX_SPEED_ESP * 0.3
-                leftSpeed_cmd = -turn_effort * correction_turn_speed; rightSpeed_cmd = turn_effort * correction_turn_speed
-                phi_error_correction = normalize_angle(turn_pid_esp.setpoint - phi_esp)
-                if abs(phi_error_correction) < TURN_COMPLETION_THRESHOLD_ESP:
-                    navigation_state_esp = navigation_state_before_correction_esp; effective_target_coord_esp = effective_target_coord_before_correction_esp
-                    line_follow_sub_state_esp = 'forward'
-        elif navigation_state_esp == "REACHED_GOAL":
-            leftSpeed_cmd, rightSpeed_cmd = 0.0, 0.0 # Goal reached, stop.
-            if not goal_reached_visualisation_sent:
-                send_to_visualisation({"current_node": GOAL_NODE_KEY_ESP})
-                print(f"ESP32: Goal {GOAL_NODE_KEY_ESP} reached! Pose: x={x_esp:.3f},y={y_esp:.3f},phi={math.degrees(phi_esp):.1f}")
-                goal_reached_visualisation_sent = True
-        elif navigation_state_esp == "ERROR":
-            leftSpeed_cmd, rightSpeed_cmd = 0.0, 0.0
-            print(f"ESP32: Robot in ERROR state. Stopping.")
-            send_to_visualisation({"current_node": None}) # Signal error or unknown state
-        # === END STATE MACHINE LOGIC ===
-
-        # Clip final speeds
-        leftSpeed_cmd = clip_value(leftSpeed_cmd, -MAX_SPEED_ESP, MAX_SPEED_ESP)
-        rightSpeed_cmd = clip_value(rightSpeed_cmd, -MAX_SPEED_ESP, MAX_SPEED_ESP)
-
-        response_binary_data = struct.pack('<2f', leftSpeed_cmd, rightSpeed_cmd)
-        client_socket.sendall(response_binary_data)
-        return True # Indicate success
-
-    except OSError as e:
-        print(f"ESP32 Socket OS Error during processing: {e}")
-        return False # Indicate connection issue
-    except Exception as e:
-        print(f"ESP32 Error processing data: {e}")
-        try:
-            error_response = struct.pack('<2f', 0.0, 0.0)
-            client_socket.sendall(error_response)
-        except Exception as e2:
-            print(f"ESP32: Error sending error response: {e2}")
-        return False # Indicate failure
-
 
 def process_robot_data_tcp(client_socket):
+    """
+    Main robot control state machine.
+    Receives sensor data, updates state, computes wheel speeds, and sends commands.
+    """
     global x_esp, y_esp, phi_esp
     global line_follow_sub_state_esp, line_follow_counter_esp
     global navigation_state_esp, planned_path_esp, current_path_segment_index_esp
@@ -761,6 +569,9 @@ def start_server(host='0.0.0.0', port=65432): # Port matches Webots controller
     print("ESP32: Server socket closed.")
 
 def reset_initial_esp_state():
+    """
+    Reset all global state variables to initial values for a new run/connection.
+    """
     global x_esp, y_esp, phi_esp, line_follow_sub_state_esp, line_follow_counter_esp
     global navigation_state_esp, planned_path_esp, current_path_segment_index_esp
     global effective_target_coord_esp, previous_waypoint_actual_coord_esp, current_target_actual_coord_esp
@@ -790,14 +601,12 @@ def reset_initial_esp_state():
 
 
 def run():
+    """
+    Entry point: reset state and start the server.
+    """
     reset_initial_esp_state()
     start_server()
 
 # --- Start the server when main.py is executed ---
 if __name__ == "__main__":
     run()
-
-
-
-
-
