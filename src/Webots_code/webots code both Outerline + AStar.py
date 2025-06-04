@@ -49,7 +49,7 @@ for i in range(3):
     gs[i].enable(timestep)
 
 # --- Socket Communication Setup (Client) ---
-HOST = '192.168.2.32'  # Standard loopback interface address (localhost) - replace with ESP32 IP
+HOST = '192.168.121.2'  # Standard loopback interface address (localhost) - replace with ESP32 IP
 PORT = 65432        # Port to listen on (non-privileged ports are > 1023)
 
 print(f"Attempting to connect to ESP32 at {HOST}:{PORT}...")
@@ -68,7 +68,7 @@ except socket.error as e:
 # Note: The ESP32 will maintain its own internal pose. This is mainly for initial setup consistency.
 x = 0.0
 y = 0.0
-phi = 1.5707
+phi = 0
 
 # Main control loop
 while robot.step(timestep) != -1:

@@ -129,4 +129,3 @@ class PIDController_ESP:
 
 def clip_value(value, min_val, max_val):
     return max(min_val, min(value, max_val))
-

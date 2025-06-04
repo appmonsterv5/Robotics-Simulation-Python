@@ -1,87 +1,125 @@
-from machine import UART # type: ignore
-from time import sleep
-from config import COUNTER_MAX, COUNTER_STOP, led_board, button_right
-from utils import read_Sensor_Status_OuterLine, led_Control
+import network
+import usocket as socket
+import ustruct as struct
+import time
+from utils import led_Control  # <-- import the real led_Control
+
+# --- Wi-Fi Setup (assume already connected) ---
+wlan = network.WLAN(network.STA_IF)
+ESP32_IP_ADDRESS = wlan.ifconfig()[0] if wlan.isconnected() else "0.0.0.0"
+
+# --- Constants ---
+MAX_SPEED = 6.28
+
+def determine_line_following_state(gs_values):
+    left_on = gs_values[2] < 500
+    center_on = gs_values[1] < 500
+    right_on = gs_values[0] < 500
+
+    if not left_on and not center_on and not right_on:
+        return 'lost'
+    elif center_on:
+        return 'forward'
+    elif left_on:
+        return 'turn_right'
+    elif right_on:
+        return 'turn_left'
+    else:
+        return 'forward'
+
+def determine_line_following_speeds(gs_values):
+    base_speed = MAX_SPEED * 0.5
+    state = determine_line_following_state(gs_values)
+    if state == 'forward':
+        return base_speed, base_speed
+    elif state == 'turn_left':
+        return 0.2 * base_speed, base_speed
+    elif state == 'turn_right':
+        return base_speed, 0.2 * base_speed
+    elif state == 'lost':
+        return -0.2 * base_speed, 0.2 * base_speed
+    else:
+        return 0.0, 0.0
+
+def set_led_by_state(state):
+    if state == 'forward':
+        led_Control(1, 0, 0, 0)  # Yellow
+    elif state == 'turn_right':
+        led_Control(0, 1, 0, 0)  # Blue
+    elif state == 'turn_left':
+        led_Control(0, 0, 1, 0)  # Green
+    elif state == 'lost':
+        led_Control(0, 0, 0, 1)  # Red
+    else:
+        led_Control(0, 0, 0, 0)  # All off
+
+def process_robot_data_tcp(client_socket):
+    try:
+        expected_bytes = 24
+        received = b''
+        while len(received) < expected_bytes:
+            packet = client_socket.recv(expected_bytes - len(received))
+            if not packet:
+                return False
+            received += packet
+        gs0, gs1, gs2, wl, wr, delta_t = struct.unpack('<6f', received)
+        gs_values = [gs0, gs1, gs2]
+        state = determine_line_following_state(gs_values)
+        set_led_by_state(state)
+        leftSpeed, rightSpeed = determine_line_following_speeds(gs_values)
+        response = struct.pack('<2f', leftSpeed, rightSpeed)
+        client_socket.sendall(response)
+        return True
+    except Exception as e:
+        try:
+            client_socket.sendall(struct.pack('<2f', 0.0, 0.0))
+        except:
+            pass
+        return False
+
+def start_server(host='0.0.0.0', port=65432):
+    print("ESP32 OuterLine: Waiting for Webots connection...")
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_socket.bind((host, port))
+    server_socket.listen(1)
+    print(f"ESP32 OuterLine: TCP server listening on {ESP32_IP_ADDRESS}:{port}")
+    while True:
+        client_sock = None
+        try:
+            client_sock, client_addr = server_socket.accept()
+            print(f"ESP32 OuterLine: Client connected from {client_addr}")
+            client_sock.settimeout(5.0)
+            while True:
+                if not process_robot_data_tcp(client_sock):
+                    print("ESP32 OuterLine: Client disconnected or error.")
+                    break
+        except Exception as e:
+            print("ESP32 OuterLine: Socket error:", e)
+        finally:
+            if client_sock:
+                client_sock.close()
+                print("ESP32 OuterLine: Client socket closed.")
+    server_socket.close()
 
 def run():
-    print("Outer Line follower is running...")
-    # Set serial to UART1 using the same pins as UART0 to communicate via USB
-    uart = UART(1, 115200, tx=1, rx=3)
+    start_server()
 
-    # Initial status of the line sensor: updated by Webots via serial
-    line_left = False
-    line_center = False
-    line_right = False
+if __name__ == "__main__":
+    run()
 
-    # Variables to implement the line-following state machine
-    current_state = 'forward'
-    counter = 0
-    state_updated = True
+# Add these LED control calls in your state machine or wherever you handle robot states:
+# - led_Control(1, 0, 0, 0)  # Yellow: moving forward
+# - led_Control(0, 1, 0, 0)  # Blue: turning right
+# - led_Control(0, 0, 1, 0)  # Green: turning left
+# - led_Control(0, 0, 0, 1)  # Red: stopped
 
-    while True:
-        
-        ##################   See   ###################
-        
-        # Check if anything was received via serial to update sensor status
-        if uart.any():
-            line_left, line_center, line_right = read_Sensor_Status_OuterLine(uart.read())
-            print(f"Line sensors: left={line_left}, center={line_center}, right={line_right}")
-
-        ##################   Think   ###################
-
-        # Implement the line-following state machine transitions    
-        if current_state == 'forward':
-            led_Control(1, 0, 0, 0)  # Turn on yellow LED when moving forward
-            counter = 0
-            # Check if the button is pressed to stop
-            if button_right.value() == True:
-                current_state = 'stop'
-                state_updated = True
-
-            # Check the line sensor status to determine the next state
-            elif line_left and not line_right:
-                current_state = 'turn_right'    
-                state_updated = True
-            elif not line_left and line_right:
-                current_state = 'turn_left'
-                state_updated = True
-            elif not line_left and not line_right and not line_center: # lost the line
-                current_state = 'turn_left'
-                state_updated = True
-
-        elif current_state == 'turn_right':
-            led_Control(0, 1, 0, 0)  # Turn on blue LED when turning right
-            if button_right.value() == True:
-                current_state = 'stop'
-                state_updated = True
-            elif counter >= COUNTER_MAX:
-                current_state = 'forward'
-                state_updated = True
-
-        elif current_state == 'turn_left':
-            led_Control(0, 0, 1, 0)  # Turn on green LED when turning left
-            if button_right.value() == True:
-                current_state = 'stop'
-                state_updated = True
-            elif counter >= COUNTER_MAX:
-                current_state = 'forward'
-                state_updated = True
-
-        elif current_state == 'stop':
-            led_Control(0, 0, 0, 1)  # Turn on red LED when stopped
-            led_board.value(1)
-            if counter >= COUNTER_STOP:
-                current_state = 'forward'
-                state_updated = True
-                led_board.value(0)
-
-
-        ##################   Act   ###################
-
-        # Send the new state when updated
-        if state_updated == True:
-            uart.write(current_state + '\n')
-            state_updated = False
-
-        counter += 1    # increment counter
-        sleep(0.02)     # wait 0.02 seconds
+# Example usage:
+# if current_state == 'forward':
+#     led_Control(1, 0, 0, 0)
+# elif current_state == 'turn_right':
+#     led_Control(0, 1, 0, 0)
+# elif current_state == 'turn_left':
+#     led_Control(0, 0, 1, 0)
+# elif current_state == 'stop':
+#     led_Control(0, 0, 0, 1)
