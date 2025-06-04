@@ -10,7 +10,8 @@ This project implements a Hardware-in-the-Loop (HIL) simulation for the e-puck r
 
 - ESP32 development board (tested with ESP32 WROOM 32 dev kit)
 - PC running Webots (tested on Windows 11)
-- USB cable for ESP32-PC connection
+- USB cable for ESP32 power
+- LEDboard (tested with HANZE-Board)
 
 ### Software
 
@@ -19,7 +20,6 @@ This project implements a Hardware-in-the-Loop (HIL) simulation for the e-puck r
 - **Webots**: R2023a or newer
 - **pip packages** (for PC/Webots):
   - `numpy`
-  - `pyserial`
 - **MicroPython modules** (for ESP32):
   - `network`
   - `usocket`
@@ -55,15 +55,13 @@ This project implements a Hardware-in-the-Loop (HIL) simulation for the e-puck r
 
 - Open Webots and load the e-puck simulation world.
 - Place the provided controllers in the appropriate Webots project folders:
-  - `Webots_code/OuterLine_webots.py`
-  - `Webots_code/AStar_webots.py`
-- Adjust the serial port in `OuterLine_webots.py` (e.g., `COM7`) to match your system.
-- For A* path planning, set the ESP32 IP address in `AStar_webots.py` (`HOST = '...'`).
+  - `Webots_code/webots_code_both_Outerline_AStar.py`
+- Set the ESP32 IP address in `webots_code_both_Outerline_AStar.py` (`HOST = '...'`).
 
 ### 5. Install Python Dependencies (on PC)
 
 ```bash
-pip install numpy pyserial
+pip install numpy
 ```
 
 ### 6. Running the Experiment
@@ -75,9 +73,8 @@ pip install numpy pyserial
 
 #### b. Start Webots
 
-- Run the desired controller:
-  - For line following: `OuterLine_webots.py`
-  - For A* path planning: `AStar_webots.py`
+- Run the controller:
+  - `webots_code_both_Outerline_AStar.py`
 
 #### c. Select Algorithm
 
@@ -103,8 +100,7 @@ src/
       OuterLine.py         # Outer line following logic
       AStar.py             # A* path planning logic
   Webots_code/
-    OuterLine_webots.py    # Webots controller for line following
-    AStar_webots.py        # Webots controller for A* path planning
+    webots_code_both_Outerline_AStar.py    # Webots controller for both linefollowing and astar algorithm
 ```
 
 ## Reproducing the Main Experiment
@@ -116,7 +112,6 @@ src/
 
 ## Notes
 
-- Ensure only one program accesses the ESP32 serial port at a time (close Thonny before running Webots).
 - Adjust pin numbers and serial ports as needed for your hardware.
 - For troubleshooting, check serial output from ESP32 and Webots console logs.
 

@@ -49,7 +49,7 @@ for i in range(3):
     gs[i].enable(timestep)
 
 # --- Socket Communication Setup (Client) ---
-HOST = '192.168.121.2'  # Standard loopback interface address (localhost) - replace with ESP32 IP
+HOST = '192.168.137.42'  # Standard loopback interface address (localhost) - replace with ESP32 IP
 PORT = 65432        # Port to listen on (non-privileged ports are > 1023)
 
 print(f"Attempting to connect to ESP32 at {HOST}:{PORT}...")

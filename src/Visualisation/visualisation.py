@@ -27,7 +27,7 @@ GRID_LAYOUT = [
 ]
 
 class RobotVisualizer:
-    def __init__(self, host='192.168.121.2', port=65433):
+    def __init__(self, host='192.168.137.42', port=65433):
         self.fig, self.ax = plt.subplots(figsize=(12, 8))
         self.robot_position = None  # Current node (e.g., 'E4')
         self.planned_path = []      # List of nodes (e.g., ['B0', 'B4', 'C4'])

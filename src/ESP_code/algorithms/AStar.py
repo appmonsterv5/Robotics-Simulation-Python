@@ -13,7 +13,8 @@ import usocket as socket
 import ustruct as struct
 import time  # <-- Add this import for timekeeping
 import json  # <-- Add for sending JSON to visualisation
-
+import machine
+from utils import led_Control  # <-- import the real led_Control
 # --- Wi-Fi Setup ---
 wlan = network.WLAN(network.STA_IF)
 ESP32_IP_ADDRESS = wlan.ifconfig()[0] if wlan.isconnected() else "0.0.0.0"
@@ -218,11 +219,13 @@ def start_visualisation_server(host='0.0.0.0', port=65433, wait_timeout=10):
             visualisation_client_sock, vis_client_addr = vis_server_socket.accept()
             visualisation_connected = True
             print(f'ESP32: Visualisation client connected from {vis_client_addr}')
+            led_Control(0, 0, 1, 0)  # Green
             visualisation_client_sock.settimeout(2.0)
             break
         except OSError:  # <-- Changed from socket.timeout to OSError
             if (time.time() - start_time) > wait_timeout:
                 print("ESP32: No visualisation client connected, continuing without visualisation.")
+                led_Control(0, 0, 1, 0)  # Green                
                 break
     vis_server_socket.close()
 
@@ -729,7 +732,7 @@ def start_server(host='0.0.0.0', port=65432): # Port matches Webots controller
             print("ESP32: Waiting for a client connection...")
             client_sock, client_addr = server_socket.accept()
             print(f'ESP32: Client connected from {client_addr}')
-            client_sock.settimeout(5.0) # Set a timeout for client operations (e.g., 5 seconds)
+            client_sock.settimeout(10.0) # Set a timeout for client operations (e.g., 5 seconds)
 
             while True: # Inner loop to handle data from the connected client
                 if not process_robot_data_tcp(client_sock):
@@ -744,6 +747,7 @@ def start_server(host='0.0.0.0', port=65432): # Port matches Webots controller
             if client_sock:
                 client_sock.close()
                 print("ESP32: Client socket closed.")
+                machine.reset()
             # Also close visualisation client if connected
             global visualisation_client_sock, visualisation_connected
             if visualisation_client_sock:

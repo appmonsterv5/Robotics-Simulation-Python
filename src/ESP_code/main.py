@@ -26,6 +26,7 @@ from config import led_board, button_left, button_right
 import OuterLine as OuterLine # type: ignore
 import AStar as AStar # type: ignore
 
+
 # --- Check Wi-Fi Connection ---
 wlan = network.WLAN(network.STA_IF)
 if not wlan.isconnected():

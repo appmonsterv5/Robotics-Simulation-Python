@@ -1,4 +1,5 @@
 import network
+import machine
 import usocket as socket
 import ustruct as struct
 import time
@@ -28,7 +29,7 @@ def determine_line_following_state(gs_values):
         return 'forward'
 
 def determine_line_following_speeds(gs_values):
-    base_speed = MAX_SPEED * 0.5
+    base_speed = MAX_SPEED * 1
     state = determine_line_following_state(gs_values)
     if state == 'forward':
         return base_speed, base_speed
@@ -100,6 +101,7 @@ def start_server(host='0.0.0.0', port=65432):
             if client_sock:
                 client_sock.close()
                 print("ESP32 OuterLine: Client socket closed.")
+                machine.reset()
     server_socket.close()
 
 def run():
