@@ -38,17 +38,17 @@ This project implements a Hardware-in-the-Loop (HIL) simulation for the e-puck r
 
 ### 2. Upload ESP32 Code
 
-- Copy the following files to the ESP32 using ampy, Thonny, or WebREPL:
+- Copy the following files from `src/ESP_code/` to the ESP32 using ampy, Thonny, or WebREPL:
   - `boot.py`
   - `main.py`
   - `config.py`
   - `utils.py`
   - `algorithms/OuterLine.py (copy OuterLine.py directly to the ESP32)`
-  - `algorithms/AStar.py (Copy AStar.py directly to the ESP32)`
+  - `algorithms/AStar.py (copy Astar.py directly to the ESP32)`
 
 ### 3. Configure Wi-Fi
 
-- Edit `boot.py` and set your Wi-Fi SSID and password.
+- Edit `src/ESP_code/boot.py` and set your Wi-Fi SSID and password.
 - On boot, ESP32 will connect to Wi-Fi and print its IP address.
 
 ### 4. Webots Setup
@@ -71,17 +71,17 @@ pip install numpy pyserial
 #### a. Start ESP32
 
 - Reset or power on the ESP32.
-- Wait for Wi-Fi connection (check serial output for IP).
+- Wait for Wi-Fi connection (check serial output for confirmation).
 
 #### b. Start Webots
 
 - Run the desired controller:
-  - For line following (note, This uses USB Serial): `OuterLine_webots.py`
+  - For line following: `OuterLine_webots.py`
   - For A* path planning: `AStar_webots.py`
 
 #### c. Select Algorithm
 
-- On ESP32 depending on which Webots code is in use, press:
+- On ESP32, press:
   - **Left button**: Start Outer Line Follower
   - **Right button**: Start A* Path Planner
 
@@ -94,16 +94,17 @@ pip install numpy pyserial
 
 ```
 src/
-  main.py                # Entry point for ESP32
-  boot.py                # Wi-Fi setup for ESP32
-  config.py              # Pin and map configuration
-  utils.py               # Utility functions and PID
-  algorithms/
-    OuterLine.py         # Outer line following logic
-    AStar.py             # A* path planning logic
+  ESP_code/
+    boot.py                # Wi-Fi setup for ESP32
+    main.py                # Entry point for ESP32
+    config.py              # Pin and map configuration
+    utils.py               # Utility functions and PID
+    algorithms/
+      OuterLine.py         # Outer line following logic
+      AStar.py             # A* path planning logic
   Webots_code/
-    OuterLine_webots.py  # Webots controller for line following
-    AStar_webots.py      # Webots controller for A* path planning
+    OuterLine_webots.py    # Webots controller for line following
+    AStar_webots.py        # Webots controller for A* path planning
 ```
 
 ## Reproducing the Main Experiment
